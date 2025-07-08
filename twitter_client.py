@@ -712,25 +712,37 @@ class TwitterClient:
             logger.info(f"Getting recent tweets from {profile_url} (last {hours} hours)")
             self.page.goto(profile_url, wait_until="domcontentloaded")
             random_delay(3, 5)
-            
-            # Wait for tweets to load
+
+            # Wait for tweets to load (timeout 30s)
             selectors = [
                 'article[data-testid="tweet"]',
                 '[data-testid="tweet"]',
                 'article[role="article"]'
             ]
-            
+
             recent_tweets = []
-            
-            # Try to find multiple tweet elements
             try:
-                # Wait for first tweet to load
-                self.page.wait_for_selector('article[data-testid="tweet"]', timeout=10000)
-                
+                # Wait for any tweet selector to appear (timeout 30s)
+                found = False
+                for selector in selectors:
+                    try:
+                        self.page.wait_for_selector(selector, timeout=30000)
+                        found = True
+                        logger.info(f"Found tweet selector: {selector}")
+                        break
+                    except Exception as e:
+                        logger.info(f"Selector {selector} not found: {str(e)}")
+                if not found:
+                    logger.error(f"No tweet selectors found for @{username} after 30s")
+                    return []
+
+                # Ekstra bekleme: bazen headless ortamda render gecikebilir
+                random_delay(2, 4)
+
                 # Get all tweet elements on the page
                 tweet_elements = self.page.query_selector_all('article[data-testid="tweet"]')
                 logger.info(f"Found {len(tweet_elements)} tweets on profile")
-                
+
                 for i, tweet_element in enumerate(tweet_elements[:max_tweets]):
                     try:
                         # Skip pinned tweets (they usually have a pin indicator)
@@ -738,38 +750,38 @@ class TwitterClient:
                         if pin_indicator:
                             logger.info(f"Skipping pinned tweet for @{username}")
                             continue
-                        
+
                         # Get tweet URL and ID
                         tweet_link = tweet_element.query_selector('a[href*="/status/"]')
                         if not tweet_link:
                             continue
-                        
+
                         tweet_url = tweet_link.get_attribute('href')
                         if not tweet_url.startswith('http'):
                             tweet_url = f"https://twitter.com{tweet_url}"
-                        
+
                         # Extract tweet ID from URL
                         tweet_id_match = re.search(r'/status/(\d+)', tweet_url)
                         tweet_id = tweet_id_match.group(1) if tweet_id_match else None
-                        
+
                         if not tweet_id:
                             continue
-                        
+
                         # Get tweet text
                         tweet_text = tweet_element.inner_text()
-                        
+
                         # Try to get timestamp (this is approximate since Twitter uses relative times)
                         timestamp_element = tweet_element.query_selector('time')
                         timestamp = None
                         if timestamp_element:
                             timestamp = timestamp_element.get_attribute('datetime')
-                        
+
                         # If no timestamp found, use current time minus index hours as approximation
                         if not timestamp:
                             from datetime import datetime, timedelta
                             estimated_time = datetime.now() - timedelta(minutes=i*30)  # Rough estimate
                             timestamp = estimated_time.isoformat()
-                        
+
                         tweet_data = {
                             "id": tweet_id,
                             "url": tweet_url,
@@ -777,21 +789,21 @@ class TwitterClient:
                             "username": username,
                             "timestamp": timestamp
                         }
-                        
+
                         recent_tweets.append(tweet_data)
                         logger.info(f"Found tweet {i+1}: {tweet_id}")
-                        
+
                     except Exception as e:
                         logger.warning(f"Error processing tweet {i+1} for @{username}: {str(e)}")
                         continue
-                
+
                 logger.info(f"Retrieved {len(recent_tweets)} recent tweets for @{username}")
                 return recent_tweets
-                
+
             except Exception as e:
                 logger.error(f"Error finding tweets for @{username}: {str(e)}")
                 return []
-                
+
         except Exception as e:
             logger.error(f"Error getting recent tweets from @{username}: {str(e)}")
             return []
