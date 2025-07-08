@@ -20,12 +20,14 @@ def bot_runner():
         time.sleep(3600)  # 1 saatte bir çalıştır
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    print(f"Flask sunucusu {port} portunda çalışıyor...")
+
+    # Flask sunucusu önce çalışmalı ki Render portu görsün
     # Botu ayrı bir thread olarak başlat
     t = threading.Thread(target=bot_runner)
     t.daemon = True
     t.start()
 
-    # Flask sunucusunu başlat
-    port = int(os.environ.get("PORT", 10000))
-    print(f"Flask sunucusu {port} portunda çalışıyor...")
+    # Flask app'i başlat
     app.run(host="0.0.0.0", port=port)
