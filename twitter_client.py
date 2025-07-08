@@ -138,10 +138,10 @@ class TwitterClient:
             self.page = self.context.new_page()
         logger.info("Browser page created")
 
-        # Navigate directly to Twitter home page
+        # Navigate directly to Twitter home page (login sayfası için timeout'u artır)
         try:
             logger.info("Navigating directly to Twitter home page")
-            self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=120000)
+            self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=300000)  # 5 dakika timeout"
             logger.info("Successfully navigated to Twitter home page")
             random_delay(8, 15)
         except Exception as e:
