@@ -1,12 +1,13 @@
 FROM python:3.11-slim
 
-# Install system dependencies (including xauth for xvfb-run)
+# Sistem bağımlılıklarını yükle
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     xauth \
+    curl \
     && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google.list \
     && apt-get update && apt-get install -y \
     google-chrome-stable \
     fonts-ipafont-gothic \
@@ -15,25 +16,25 @@ RUN apt-get update && apt-get install -y \
     fonts-kacst \
     fonts-freefont-ttf \
     libxss1 \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Çalışma dizinini ayarla
 WORKDIR /app
 
-# Copy project files
+# Proje dosyalarını kopyala
 COPY . .
 
-# Install Python dependencies
+# Python bağımlılıklarını yükle
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers
+# Playwright tarayıcılarını yükle
 RUN playwright install chromium
 RUN playwright install-deps
 
-# Environment variables
+# Ortam değişkenleri
 ENV PYTHONUNBUFFERED=1
 ENV GOOGLE_CHROME_BIN=/usr/bin/google-chrome
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
-# Run script with Xvfb for headed Playwright/Chrome
-CMD ["xvfb-run", "-a", "python", "web_main.py"]
+# Uygulamayı başlat (xvfb-run opsiyonel, gerekirse elle ekle)
+CMD ["python", "web_main.py"]
