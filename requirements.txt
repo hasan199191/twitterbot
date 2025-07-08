@@ -4,4 +4,4 @@ python-dotenv==1.0.0
 schedule==1.2.0
 requests==2.31.0
 beautifulsoup4==4.12.3  # Updated from 4.12.2 to resolve dependency conflict with scweet
-flask
+Flask>=2.0.0
