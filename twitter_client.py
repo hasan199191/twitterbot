@@ -27,30 +27,16 @@ class TwitterClient:
         
         # Performans için geliştirilmiş tarayıcı argümanları
         browser_args = [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
+            "--no-sandbox", 
+            "--disable-setuid-sandbox", 
             "--disable-dev-shm-usage",
-            "--disable-gpu",
-            "--disable-software-rasterizer",
-            "--no-zygote",
-            "--single-process",
-            "--disable-extensions",
-            "--disable-background-networking",
-            "--disable-default-apps",
-            "--disable-sync",
-            "--disable-translate",
-            "--hide-scrollbars",
-            "--metrics-recording-only",
-            "--mute-audio",
-            "--no-first-run",
-            "--safebrowsing-disable-auto-update",
-            "--disable-gl-drawing-for-tests",
-            "--enable-features=NetworkService,NetworkServiceInProcess",
-            "--disable-features=IsolateOrigins,site-per-process",
+            "--enable-gpu",  # GPU hızlandırmayı etkinleştir
+            "--disable-features=IsolateOrigins,site-per-process",  # İzolasyonu azaltarak hız kazanma
             "--disable-site-isolation-trials",
-            "--force-gpu-rasterization",
+            "--enable-features=NetworkService,NetworkServiceInProcess",
+            "--force-gpu-rasterization",  # Grafik hızlandırma
             "--disable-accelerated-video-decode=false",
-            "--window-size=1920,1080"
+            "--window-size=1920,1080"  # Tam boyutlu pencere
         ]
         logger.info(f"Browser arguments: {browser_args}")
         
@@ -74,9 +60,10 @@ class TwitterClient:
         
         # Geliştirilmiş tarayıcı başlatma
         self.browser = self.playwright.chromium.launch(
-            headless=True,  # Sunucu ortamı için mutlaka True olmalı!
+            headless=True,  # Render veya sunucu ortamı için headless modda çalıştır
             args=browser_args,
-            channel="chrome"
+            channel="chrome",  # Normal Chrome kullan (varsa)
+            slow_mo=0  # Headless modda yavaşlatmaya gerek yok
         )
         logger.info("Browser launched successfully in headless mode")
         
@@ -87,10 +74,7 @@ class TwitterClient:
             viewport={"width": 1920, "height": 1080},
             device_scale_factor=1.0,
             has_touch=False,
-            ignore_https_errors=True,
-            java_script_enabled=True,
-            locale="en-US",
-            timezone_id="Europe/Istanbul"
+            ignore_https_errors=True
         )
         logger.info("Browser context created")
         
@@ -402,11 +386,9 @@ class TwitterClient:
 
     def post_tweet_thread(self, content_list):
         """Post a thread of tweets"""
+        # No need to check login since browser opens already logged in
+        
         try:
-            if not self.page or self.page.is_closed():
-                logger.error("Page is closed before posting thread, re-initializing browser.")
-                self.close()
-                self._setup_browser()
             logger.info(f"Posting a thread with {len(content_list)} tweets")
             
             # Navigate to compose tweet page directly
@@ -555,10 +537,6 @@ class TwitterClient:
                 
         except Exception as e:
             logger.error(f"Thread posting failed: {str(e)}")
-            # Tarayıcı kapanırsa tekrar başlat
-            if "closed" in str(e).lower():
-                self.close()
-                self._setup_browser()
             return False
             
         return True
@@ -586,7 +564,7 @@ class TwitterClient:
             
             for selector in selectors:
                 try:
-                    tweet_element = self.page.wait_for_selector(selector, timeout=20000)  # 10.000 → 20.000 ms
+                    tweet_element = self.page.wait_for_selector(selector, timeout=10000)
                     if tweet_element:
                         tweet_found = True
                         logger.info(f"Found tweet with selector: {selector}")

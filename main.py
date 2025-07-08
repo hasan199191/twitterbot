@@ -8,8 +8,6 @@ from datetime import datetime
 from dotenv import load_dotenv
 from twitter_client import TwitterClient
 from gemini_client import GeminiClient
-from flask import Flask
-import threading
 
 # Configure logging with UTF-8 encoding
 logging.basicConfig(
@@ -254,8 +252,8 @@ def regenerate_and_post_tweets(twitter_client, gemini_client):
     regenerated_tweets = load_regenerated_tweets()
     for username in REGENERATION_ACCOUNTS:
         try:
-            # Sadece son 6 saat içindeki tweetleri al
-            tweets = twitter_client.get_recent_tweets(username, hours=6, max_tweets=5)
+            # Sadece son 2 saat içindeki tweetleri al
+            tweets = twitter_client.get_recent_tweets(username, hours=2, max_tweets=5)
             if not tweets:
                 logger.info(f"No recent tweets found for @{username}")
                 continue
@@ -303,100 +301,125 @@ def run_bot():
         
         project_index = state["project_index"]
         twitter_account_index = state["twitter_account_index"]
-
-        # Initialize clients
+          # Initialize clients
         twitter_client = TwitterClient()
         twitter_client._setup_browser()
         gemini_client = GeminiClient()
 
-        # 1. Takip edilen hesapların tweetlerini yeniden üretip paylaş
+        # --- NEW TASK: Regenerate and post tweets from specific accounts ---
         regenerate_and_post_tweets(twitter_client, gemini_client)
+        # --- END NEW TASK ---
 
-        # 2. Belirlenen konularda içerik oluşturup paylaş
+        # Post project tweets - Select 3 projects sequentially
         selected_projects = []
         for _ in range(5):
             selected_projects.append(PROJECTS[project_index])
             project_index = (project_index + 1) % len(PROJECTS)
+          # Post all tweets with one login session
         for project in selected_projects:
             try:
                 tweet_content = gemini_client.generate_project_tweet(project)
                 success = twitter_client.post_tweet(tweet_content)
+                
                 if success:
                     logger.info(f"Posted tweet about {project['name']}")
                 else:
                     logger.error(f"Failed to post tweet about {project['name']}")
-                time.sleep(random.uniform(10, 15))
+                    
+                time.sleep(random.uniform(10, 15))  # Daha uzun bekleme
             except Exception as e:
                 logger.error(f"Error posting tweet for {project['name']}: {str(e)}")
+                # Screenshot for debugging
                 try:
                     twitter_client.page.screenshot(path=f"error_{project['name']}.png")
                 except:
                     pass
-
-        # 3. Takip edilen hesapların tweetlerine yorum yap
+        
+        # Comment on tweets - Select 15 accounts sequentially
         selected_accounts = []
         for _ in range(15):
             selected_accounts.append(TWITTER_ACCOUNTS[twitter_account_index])
             twitter_account_index = (twitter_account_index + 1) % len(TWITTER_ACCOUNTS)
+        
+        # Load already commented tweets
         commented_tweets = load_commented_tweets()
+        
+        # Comment on all tweets with same login session
         for username in selected_accounts:
             try:
-                # Son 6 saat içindeki tweetleri al
-                recent_tweets = twitter_client.get_recent_tweets(username, hours=6, max_tweets=5)
+                # Get recent tweets (not just latest) to avoid pin tweets
+                recent_tweets = twitter_client.get_recent_tweets(username, hours=2, max_tweets=5)
+                
                 if not recent_tweets:
                     logger.info(f"No recent tweets found for @{username}")
                     continue
+                
+                # Process each recent tweet
                 for tweet in recent_tweets:
                     tweet_id = tweet.get("id")
                     tweet_text = tweet.get("text", "")
                     tweet_timestamp = tweet.get("timestamp")
+                    
+                    # Skip if already commented on this tweet
                     if tweet_id in commented_tweets:
                         logger.info(f"Already commented on tweet {tweet_id} by @{username}")
                         continue
+                    
+                    # Skip if tweet is not recent (older than 23 hours)
                     if not is_tweet_recent(tweet_timestamp):
                         logger.info(f"Tweet by @{username} is older than 23 hours, skipping")
                         continue
+                    
+                    # Check if tweet contains keywords
                     if contains_keywords(tweet_text):
                         comment = gemini_client.generate_comment(username, tweet)
                         success = twitter_client.post_comment(tweet.get("url"), comment)
+                        
                         if success:
+                            # Save tweet ID as commented
                             save_commented_tweet(tweet_id)
                             logger.info(f"Commented on recent tweet by @{username} (contained keywords)")
                         else:
                             logger.error(f"Failed to comment on tweet by @{username}")
+                        
+                        # Only comment on one tweet per user to avoid spam
                         break
                     else:
                         logger.info(f"Tweet by @{username} doesn't contain keywords, skipping")
+                
                 time.sleep(random.uniform(3, 7))
+                
             except Exception as e:
                 logger.error(f"Error processing tweets for @{username}: {str(e)}")
+        
+        # --- YENİ GÖREV: Belirli hesapların tweetlerini yeniden üret ve paylaş ---
+        regenerate_and_post_tweets(twitter_client, gemini_client)
+        # --- YENİ GÖREV SONU ---
 
         # Save updated state
         state = {"project_index": project_index, "twitter_account_index": twitter_account_index}
         with open(state_file, 'w') as f:
             json.dump(state, f)
+            
+        # Close client
         twitter_client.close()
         logger.info("Bot run completed successfully")
     
     except Exception as e:
         logger.error(f"Bot run failed with error: {str(e)}")
+        # Try to close browser if it's open
         try:
             if 'twitter_client' in locals():
                 twitter_client.close()
         except:
             pass
 
-app = Flask(__name__)
-
-@app.route("/healthz")
-def healthz():
-    return "ok", 200
-
-def start_web():
-    app.run(host="0.0.0.0", port=8080)
+def main():
+    """Run the bot once when called by task scheduler"""
+    logger.info("Bot started for a single run (managed by task scheduler)")
+    
+    # Run once and exit
+    run_bot()
 
 if __name__ == "__main__":
-    threading.Thread(target=start_web, daemon=True).start()
-    while True:
-        run_bot()
-        time.sleep(60 * 60)  # Her saat başı çalıştır
+    main()
