@@ -24,26 +24,28 @@ class TwitterClient:
         """Initialize the browser with appropriate settings"""
         logger.info("Setting up browser")
         self.playwright = sync_playwright().start()
-        
+
         # Performans için geliştirilmiş tarayıcı argümanları
         browser_args = [
-            "--no-sandbox", 
-            "--disable-setuid-sandbox", 
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
-            "--enable-gpu",  # GPU hızlandırmayı etkinleştir
-            "--disable-features=IsolateOrigins,site-per-process",  # İzolasyonu azaltarak hız kazanma
+            "--enable-gpu",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+            "--disable-web-security",
+            "--disable-features=IsolateOrigins,site-per-process",
             "--disable-site-isolation-trials",
-            "--enable-features=NetworkService,NetworkServiceInProcess",
-            "--force-gpu-rasterization",  # Grafik hızlandırma
-            "--disable-accelerated-video-decode=false",
-            "--window-size=1920,1080"  # Tam boyutlu pencere
+            "--window-size=1920,1080",
+            "--force-gpu-rasterization",
+            "--disable-accelerated-video-decode=false"
         ]
         logger.info(f"Browser arguments: {browser_args}")
-        
+
         # Check if storage state exists and is valid
         storage_path = Path(self.session_file)
         storage_state = None
-        
+
         if storage_path.exists():
             try:
                 # Check if file contains valid JSON
@@ -57,7 +59,7 @@ class TwitterClient:
                 storage_state = None
         else:
             logger.info("No session file found, will create new session")
-        
+
         # Geliştirilmiş tarayıcı başlatma
         self.browser = self.playwright.chromium.launch(
             headless=True,  # Set to False to see what's happening
@@ -66,7 +68,7 @@ class TwitterClient:
             slow_mo=50  # Daha doğal etkileşim için yavaşlatma (milisaniye)
         )
         logger.info("Browser launched successfully in headless mode")
-        
+
         # İyileştirilmiş tarayıcı bağlamı
         self.context = self.browser.new_context(
             user_agent=get_random_user_agent(),
@@ -77,24 +79,26 @@ class TwitterClient:
             ignore_https_errors=True
         )
         logger.info("Browser context created")
-        
+
         # Create page
         self.page = self.context.new_page()
         logger.info("Browser page created")
-        
+
         # Navigate directly to Twitter home page - changed to use domcontentloaded instead of networkidle
         try:
             logger.info("Navigating directly to Twitter home page")
-            self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=120000)  # 60s → 120s
+            self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=300000)  # 5 dakika
             logger.info("Successfully navigated to Twitter home page")
-            random_delay(8, 15)  # 3-5s → 8-15s arttırıldı
+            random_delay(20, 30)  # Daha uzun bekleme
+            self.page.screenshot(path="after_home_load.png")
+            logger.info("Home page screenshot saved after navigation.")
         except Exception as e:
             logger.error(f"Error navigating to Twitter home: {str(e)}")
             self.page.screenshot(path="navigation_error.png")
-        
+
         # SÜRE İYİLEŞTİRMESİ 2: Genel timeout ayarı
-        self.page.set_default_timeout(120000)  # 60s → 120s
-        logger.info("Default timeout set to 120 seconds")
+        self.page.set_default_timeout(180000)  # 3 dakika
+        logger.info("Default timeout set to 180 seconds")
     
     def _split_into_tweets(self, content):
         """Split content into tweets while preserving sentence integrity"""
@@ -794,4 +798,4 @@ class TwitterClient:
                 
         except Exception as e:
             logger.error(f"Error getting recent tweets from @{username}: {str(e)}")
-            return []   
+            return []
