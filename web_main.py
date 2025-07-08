@@ -23,7 +23,10 @@ def bot_runner():
         time.sleep(3600)
 
 if __name__ == "__main__":
+    import os
     t = threading.Thread(target=bot_runner)
     t.daemon = True
     t.start()
-    app.run(host="0.0.0.0", port=10000)
+    # Render ortamında PORT env değişkeni atanır, yoksa 10000 kullan
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
