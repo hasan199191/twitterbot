@@ -21,44 +21,34 @@ class TwitterClient:
         self.is_logged_in = True  # Changed to True since we assume browser opens logged in
         
     def _setup_browser(self):
-        """Initialize the browser with persistent context and advanced stealth"""
-        logger.info("Setting up browser (persistent context, headed mode)")
+        """Initialize the browser with appropriate settings"""
+        logger.info("Setting up browser")
         self.playwright = sync_playwright().start()
-
-        # Persistent user data dir (use /tmp on Render, or local dir)
-        user_data_dir = os.environ.get("BROWSER_USER_DATA_DIR", "/tmp/chrome-user-data")
-        os.makedirs(user_data_dir, exist_ok=True)
-
-        # Browser args
+        
+        # Performans için geliştirilmiş tarayıcı argümanları
         browser_args = [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
+            "--no-sandbox", 
+            "--disable-setuid-sandbox", 
             "--disable-dev-shm-usage",
-            "--enable-gpu",
-            "--disable-features=IsolateOrigins,site-per-process",
+            "--enable-gpu",  # GPU hızlandırmayı etkinleştir
+            "--disable-features=IsolateOrigins,site-per-process",  # İzolasyonu azaltarak hız kazanma
             "--disable-site-isolation-trials",
             "--enable-features=NetworkService,NetworkServiceInProcess",
-            "--force-gpu-rasterization",
+            "--force-gpu-rasterization",  # Grafik hızlandırma
             "--disable-accelerated-video-decode=false",
-            "--window-size=1920,1080",
-            "--start-maximized",
-            "--disable-blink-features=AutomationControlled",
-            "--disable-infobars",
-            "--disable-notifications",
-            "--disable-popup-blocking",
-            "--disable-background-timer-throttling",
-            "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding",
+            "--window-size=1920,1080"  # Tam boyutlu pencere
         ]
         logger.info(f"Browser arguments: {browser_args}")
-
+        
         # Check if storage state exists and is valid
         storage_path = Path(self.session_file)
         storage_state = None
+        
         if storage_path.exists():
             try:
+                # Check if file contains valid JSON
                 import json
-                with open(storage_path, "r") as f:
+                with open(storage_path, 'r') as f:
                     json.load(f)
                 storage_state = str(storage_path)
                 logger.info(f"Using existing session file: {storage_path}")
@@ -67,88 +57,43 @@ class TwitterClient:
                 storage_state = None
         else:
             logger.info("No session file found, will create new session")
-
-        # Use launch_persistent_context for real user profile
-        self.context = self.playwright.chromium.launch_persistent_context(
-            user_data_dir=user_data_dir,
-            headless=False,  # Headed mode for xvfb-run (cloud/Render)
+        
+        # Geliştirilmiş tarayıcı başlatma
+        self.browser = self.playwright.chromium.launch(
+            headless=False,  # Set to False to see what's happening
             args=browser_args,
-            channel="chrome",
+            channel="chrome",  # Normal Chrome kullan (varsa)
+            slow_mo=50  # Daha doğal etkileşim için yavaşlatma (milisaniye)
+        )
+        logger.info("Browser launched successfully in visible mode")
+        
+        # İyileştirilmiş tarayıcı bağlamı
+        self.context = self.browser.new_context(
+            user_agent=get_random_user_agent(),
+            storage_state=storage_state,
             viewport={"width": 1920, "height": 1080},
             device_scale_factor=1.0,
             has_touch=False,
-            ignore_https_errors=True,
-            is_mobile=False,
-            java_script_enabled=True,
-            locale="en-US",
-            timezone_id="Europe/Istanbul",
-            color_scheme="light",
-            permissions=["geolocation", "notifications"],
-            geolocation={"longitude": 28.9784, "latitude": 41.0082},
-            user_agent=get_random_user_agent(),
-            slow_mo=0
+            ignore_https_errors=True
         )
-        logger.info("Persistent browser context created (headed mode, stealth)")
-
-        # Add advanced stealth/fingerprint evasion
-        self.context.add_init_script(
-            """
-            // Stealth: navigator, webdriver, languages, platform, plugins, chrome, WebGL, permissions, media, etc.
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-            window.chrome = { runtime: {} };
-            // WebGL vendor spoof
-            const getParameter = WebGLRenderingContext.prototype.getParameter;
-            WebGLRenderingContext.prototype.getParameter = function(parameter) {
-                if (parameter === 37445) { return 'Intel Inc.'; }
-                if (parameter === 37446) { return 'Intel Iris OpenGL Engine'; }
-                return getParameter.call(this, parameter);
-            };
-            // Permissions spoof
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                Promise.resolve({ state: Notification.permission }) :
-                originalQuery(parameters)
-            );
-            // Media devices spoof
-            Object.defineProperty(navigator, 'mediaDevices', {get: () => ({ enumerateDevices: () => Promise.resolve([{kind:'videoinput'}]) })});
-            // HardwareConcurrency spoof
-            Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
-            // DeviceMemory spoof
-            Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
-            // Touch support spoof
-            Object.defineProperty(navigator, 'maxTouchPoints', {get: () => 0});
-            // Color depth spoof
-            Object.defineProperty(screen, 'colorDepth', {get: () => 24});
-            // Mouse movement simulation
-            window.addEventListener('DOMContentLoaded', () => {
-                const evt = new MouseEvent('mousemove', {clientX:100, clientY:100});
-                document.dispatchEvent(evt);
-            });
-            """
-        )
-
-        # Create page (use first page if exists, else new)
-        if self.context.pages:
-            self.page = self.context.pages[0]
-        else:
-            self.page = self.context.new_page()
+        logger.info("Browser context created")
+        
+        # Create page
+        self.page = self.context.new_page()
         logger.info("Browser page created")
-
-        # Navigate directly to Twitter home page (login sayfası için timeout'u artır)
+        
+        # Navigate directly to Twitter home page - changed to use domcontentloaded instead of networkidle
         try:
             logger.info("Navigating directly to Twitter home page")
-            self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=300000)  # 5 dakika timeout"
+            self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=120000)  # 60s → 120s
             logger.info("Successfully navigated to Twitter home page")
-            random_delay(8, 15)
+            random_delay(8, 15)  # 3-5s → 8-15s arttırıldı
         except Exception as e:
             logger.error(f"Error navigating to Twitter home: {str(e)}")
             self.page.screenshot(path="navigation_error.png")
-
-        self.page.set_default_timeout(120000)
+        
+        # SÜRE İYİLEŞTİRMESİ 2: Genel timeout ayarı
+        self.page.set_default_timeout(120000)  # 60s → 120s
         logger.info("Default timeout set to 120 seconds")
     
     def _split_into_tweets(self, content):
@@ -449,8 +394,8 @@ class TwitterClient:
             # Navigate to compose tweet page directly
             compose_url = "https://twitter.com/compose/tweet"
             logger.info(f"Navigating to {compose_url}")
-            self.page.goto(compose_url, wait_until="domcontentloaded", timeout=120000)
-            random_delay(10, 20)
+            self.page.goto(compose_url, wait_until="domcontentloaded", timeout=120000)  # 60s → 120s
+            random_delay(10, 20)  # 5-8s → 10-20s arttırıldı
             
             # Screenshot for debugging
             self.page.screenshot(path="compose_page_loaded.png")
@@ -460,6 +405,7 @@ class TwitterClient:
             logger.info(f"Entering content for tweet 1/{len(content_list)}")
             first_tweet_content = content_list[0]
             
+            # SÜRE İYİLEŞTİRMESİ 4: Textarea bekleme süresi
             textarea_selectors = [
                 '[data-testid="tweetTextarea_0"]',
                 'div[role="textbox"][data-testid="tweetTextarea_0"]',
@@ -472,10 +418,12 @@ class TwitterClient:
             for selector in textarea_selectors:
                 try:
                     logger.info(f"Trying textarea selector: {selector}")
-                    textarea = self.page.wait_for_selector(selector, state="visible", timeout=60000)
+                    # Wait for textarea with longer timeout
+                    textarea = self.page.wait_for_selector(selector, state="visible", timeout=60000)  # 30s → 60s
                     if textarea:
                         logger.info(f"Found textarea with selector: {selector}")
                         textarea_found = True
+                        # Enter content
                         self.page.fill(selector, first_tweet_content)
                         logger.info("Entered content for first tweet")
                         random_delay(2, 3)
@@ -484,16 +432,24 @@ class TwitterClient:
                     logger.info(f"Selector {selector} failed: {str(e)}")
             
             if not textarea_found:
-                # Save page HTML and screenshot for debugging
-                html_content = self.page.content()
-                with open("compose_debug.html", "w", encoding="utf-8") as f:
-                    f.write(html_content)
+                # Try JavaScript as last resort
+                logger.info("Using JavaScript to fill tweet content")
+                js_result = self.page.evaluate('''(content) => {
+                    // Try to find textareas by common characteristics
+                    const textareas = Array.from(document.querySelectorAll('div[role="textbox"], div[contenteditable="true"]'));
+                    if (textareas.length > 0) {
+                        textareas[0].innerText = content;
+                        return true;
+                    }
+                    return false;
+                }''', first_tweet_content)
+                
+                if js_result:
+                    textarea_found = True
+                    logger.info("Filled textarea using JavaScript")
+            
+            if not textarea_found:
                 self.page.screenshot(path="textarea_not_found.png")
-                # Check for login/captcha or unexpected page
-                if "Log in" in html_content or "login" in self.page.url or "captcha" in html_content.lower():
-                    logger.error("Login or captcha page detected! Bot cannot proceed.")
-                else:
-                    logger.error("Could not find tweet textarea. See compose_debug.html and textarea_not_found.png for details.")
                 raise Exception("Could not find tweet textarea")
                 
             # Add remaining tweets to thread
@@ -756,37 +712,25 @@ class TwitterClient:
             logger.info(f"Getting recent tweets from {profile_url} (last {hours} hours)")
             self.page.goto(profile_url, wait_until="domcontentloaded")
             random_delay(3, 5)
-
-            # Wait for tweets to load (timeout 30s)
+            
+            # Wait for tweets to load
             selectors = [
                 'article[data-testid="tweet"]',
                 '[data-testid="tweet"]',
                 'article[role="article"]'
             ]
-
+            
             recent_tweets = []
+            
+            # Try to find multiple tweet elements
             try:
-                # Wait for any tweet selector to appear (timeout 30s)
-                found = False
-                for selector in selectors:
-                    try:
-                        self.page.wait_for_selector(selector, timeout=30000)
-                        found = True
-                        logger.info(f"Found tweet selector: {selector}")
-                        break
-                    except Exception as e:
-                        logger.info(f"Selector {selector} not found: {str(e)}")
-                if not found:
-                    logger.error(f"No tweet selectors found for @{username} after 30s")
-                    return []
-
-                # Ekstra bekleme: bazen headless ortamda render gecikebilir
-                random_delay(2, 4)
-
+                # Wait for first tweet to load
+                self.page.wait_for_selector('article[data-testid="tweet"]', timeout=10000)
+                
                 # Get all tweet elements on the page
                 tweet_elements = self.page.query_selector_all('article[data-testid="tweet"]')
                 logger.info(f"Found {len(tweet_elements)} tweets on profile")
-
+                
                 for i, tweet_element in enumerate(tweet_elements[:max_tweets]):
                     try:
                         # Skip pinned tweets (they usually have a pin indicator)
@@ -794,38 +738,38 @@ class TwitterClient:
                         if pin_indicator:
                             logger.info(f"Skipping pinned tweet for @{username}")
                             continue
-
+                        
                         # Get tweet URL and ID
                         tweet_link = tweet_element.query_selector('a[href*="/status/"]')
                         if not tweet_link:
                             continue
-
+                        
                         tweet_url = tweet_link.get_attribute('href')
                         if not tweet_url.startswith('http'):
                             tweet_url = f"https://twitter.com{tweet_url}"
-
+                        
                         # Extract tweet ID from URL
                         tweet_id_match = re.search(r'/status/(\d+)', tweet_url)
                         tweet_id = tweet_id_match.group(1) if tweet_id_match else None
-
+                        
                         if not tweet_id:
                             continue
-
+                        
                         # Get tweet text
                         tweet_text = tweet_element.inner_text()
-
+                        
                         # Try to get timestamp (this is approximate since Twitter uses relative times)
                         timestamp_element = tweet_element.query_selector('time')
                         timestamp = None
                         if timestamp_element:
                             timestamp = timestamp_element.get_attribute('datetime')
-
+                        
                         # If no timestamp found, use current time minus index hours as approximation
                         if not timestamp:
                             from datetime import datetime, timedelta
                             estimated_time = datetime.now() - timedelta(minutes=i*30)  # Rough estimate
                             timestamp = estimated_time.isoformat()
-
+                        
                         tweet_data = {
                             "id": tweet_id,
                             "url": tweet_url,
@@ -833,21 +777,21 @@ class TwitterClient:
                             "username": username,
                             "timestamp": timestamp
                         }
-
+                        
                         recent_tweets.append(tweet_data)
                         logger.info(f"Found tweet {i+1}: {tweet_id}")
-
+                        
                     except Exception as e:
                         logger.warning(f"Error processing tweet {i+1} for @{username}: {str(e)}")
                         continue
-
+                
                 logger.info(f"Retrieved {len(recent_tweets)} recent tweets for @{username}")
                 return recent_tweets
-
+                
             except Exception as e:
                 logger.error(f"Error finding tweets for @{username}: {str(e)}")
                 return []
-
+                
         except Exception as e:
             logger.error(f"Error getting recent tweets from @{username}: {str(e)}")
             return []
