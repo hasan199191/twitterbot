@@ -8,6 +8,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 from twitter_client import TwitterClient
 from gemini_client import GeminiClient
+from flask import Flask
+import threading
 
 # Configure logging with UTF-8 encoding
 logging.basicConfig(
@@ -414,12 +416,17 @@ def run_bot():
         except:
             pass
 
-def main():
-    """Run the bot once when called by task scheduler"""
-    logger.info("Bot started for a single run (managed by task scheduler)")
-    
-    # Run once and exit
-    run_bot()
+app = Flask(__name__)
+
+@app.route("/healthz")
+def healthz():
+    return "ok", 200
+
+def start_web():
+    app.run(host="0.0.0.0", port=8080)
 
 if __name__ == "__main__":
-    run_bot()
+    threading.Thread(target=start_web, daemon=True).start()
+    while True:
+        run_bot()
+        time.sleep(60 * 60)  # Her saat başı çalıştır
