@@ -22,11 +22,15 @@ def bot_runner():
         # Her saat başı tekrar başlatmak için 3600 saniye bekle
         time.sleep(3600)
 
-if __name__ == "__main__":
-    import os
+
+# Botu Flask başlatıldıktan sonra thread ile başlatmak için before_first_request kullan
+@app.before_first_request
+def activate_bot():
     t = threading.Thread(target=bot_runner)
     t.daemon = True
     t.start()
-    # Render ortamında PORT env değişkeni atanır, yoksa 10000 kullan
+
+if __name__ == "__main__":
+    import os
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
