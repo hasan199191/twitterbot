@@ -58,7 +58,7 @@ class TwitterClient:
         if storage_path.exists():
             try:
                 import json
-                with open(storage_path, '"r") as f:
+                with open(storage_path, "r") as f:
                     json.load(f)
                 storage_state = str(storage_path)
                 logger.info(f"Using existing session file: {storage_path}")
@@ -71,7 +71,7 @@ class TwitterClient:
         # Use launch_persistent_context for real user profile
         self.context = self.playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
-            headless=False,  # Headed mode for stealth
+            headless=False,  # Headed mode for xvfb-run (cloud/Render)
             args=browser_args,
             channel="chrome",
             viewport={"width": 1920, "height": 1080},
@@ -85,7 +85,6 @@ class TwitterClient:
             color_scheme="light",
             permissions=["geolocation", "notifications"],
             geolocation={"longitude": 28.9784, "latitude": 41.0082},
-            storage_state=storage_state,
             user_agent=get_random_user_agent(),
             slow_mo=0
         )
