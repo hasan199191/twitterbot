@@ -68,15 +68,52 @@ class TwitterClient:
         logger.info("Browser launched successfully in headless mode")
         
         # İyileştirilmiş tarayıcı bağlamı
-        self.context = self.browser.new_context(
-            user_agent=get_random_user_agent(),
-            storage_state=storage_state,
-            viewport={"width": 1920, "height": 1080},
-            device_scale_factor=1.0,
-            has_touch=False,
-            ignore_https_errors=True
+        # Stealth/fingerprint ayarları
+        context_args = {
+            "user_agent": get_random_user_agent(),
+            "storage_state": storage_state,
+            "viewport": {"width": 1920, "height": 1080},
+            "device_scale_factor": 1.0,
+            "has_touch": False,
+            "ignore_https_errors": True,
+            # Bot tespitini azaltmak için ek parametreler
+            "is_mobile": False,
+            "java_script_enabled": True,
+            "locale": "en-US",
+            "timezone_id": "Europe/Istanbul",
+            "color_scheme": "light",
+            "permissions": ["geolocation", "notifications"],
+            "geolocation": {"longitude": 28.9784, "latitude": 41.0082},
+        }
+        self.context = self.browser.new_context(**context_args)
+        # WebGL ve navigator ayarlarını insan gibi yapmak için script ekle
+        self.context.add_init_script(
+            """
+            // WebGL vendor spoof
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+            window.chrome = { runtime: {} };
+            // WebGL vendor spoof
+            const getParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) { return 'Intel Inc.'; }
+                if (parameter === 37446) { return 'Intel Iris OpenGL Engine'; }
+                return getParameter.call(this, parameter);
+            };
+            // Permissions spoof
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                Promise.resolve({ state: Notification.permission }) :
+                originalQuery(parameters)
+            );
+            // User-Agent spoof (ekstra, Playwright zaten ayarlıyor)
+            // Object.defineProperty(navigator, 'userAgent', {get: () => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'});
+            """
         )
-        logger.info("Browser context created")
+        logger.info("Browser context created (stealth mode)")
         
         # Create page
         self.page = self.context.new_page()
