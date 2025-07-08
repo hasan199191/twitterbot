@@ -1,0 +1,11 @@
+services:
+  - type: cron
+    name: twitter-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    schedule: "@hourly"
+    command: python main.py
+    envVars:
+      - key: TZ
+        value: Europe/Istanbul

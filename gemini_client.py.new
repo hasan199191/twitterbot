@@ -1,0 +1,188 @@
+import os
+import time
+import random
+import logging
+import google.generativeai as genai
+from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
+
+class GeminiClient:
+    def __init__(self):
+        # Configure Gemini API
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable not set")
+        
+        genai.configure(api_key=api_key)
+        # Use the correct model name for Gemini Flash
+        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        logger.info("Initialized Gemini 1.5 Flash model")
+    
+    def generate_project_tweet(self, project):
+        """Generate tweet content for a project"""
+        try:
+            logger.info(f"Generating tweet content for {project['name']}")
+            logger.info(f"Project details: Category: {project['category']}, Twitter: {project['twitter']}")
+            
+            # Construct the prompt
+            prompt = f"""
+            You are a Web3 and blockchain expert. Create an English tweet about this project:
+            
+            - Project Name: {project['name']}
+            - Twitter: {project['twitter']}
+            - Website: {project['website']}
+            - Category: {project['category']}
+            
+            Rules:
+            1. Authentic, unique content that feels human-written
+            2. Analytical and interpretive approach (not just promotional)
+            3. No copy-paste, unique sentences
+            4. Thought-provoking questions/highlights
+            5. Insights connected to Web3 trends
+            6. If content exceeds 280 characters, it's fine - it will be posted as a thread
+            7. Emoji restriction: Max 2 emojis
+            8. Format: 
+               "Thoughts about the project... 
+               [Interesting question/highlight] 
+               {project['website']}"
+            """
+            
+            logger.debug(f"Sending prompt to Gemini: {prompt[:100]}...")
+            
+            # Generate content with Gemini
+            response = self.model.generate_content(prompt)
+            tweet_content = response.text.strip()
+            
+            logger.info(f"Generated tweet content: {tweet_content}")
+            return tweet_content
+            
+        except Exception as e:
+            logger.error(f"Error generating tweet content for {project['name']}: {str(e)}")
+            logger.info("Using fallback tweet instead")
+            # Return a fallback tweet if generation fails
+            fallback_tweet = f"Exploring {project['name']}'s innovative approach in {project['category']}. Check out their work at {project['website']}"
+            return fallback_tweet
+            
+    def generate_comment(self, username, tweet_data):
+        """Generate a comment for a tweet"""
+        
+        # Create different personas to ensure variety in comments
+        personas = [
+            "analytical crypto investor",
+            "technical blockchain developer",
+            "defi enthusiast",
+            "crypto skeptic but interested observer",
+            "nft collector and digital art lover",
+            "metaverse builder and visionary",
+            "web3 game theory expert",
+            "macro economics analyst interested in crypto",
+            "casual crypto hobbyist",
+            "institutional investor exploring web3",
+            "privacy-focused crypto advocate",
+            "cross-chain infrastructure developer",
+            "solidity programmer",
+            "crypto regulatory observer",
+            "blockchain sustainability researcher",
+            "on-chain data analyst",
+            "zk-proof researcher",
+            "ethereum maximalist",
+            "bitcoin advocate",
+            "multichain pragmatist"
+        ]
+        
+        # Select a random writing style to further differentiate comments
+        writing_styles = [
+            "technically precise, using specific terminology",
+            "casual and conversational, using everyday language",
+            "inquisitive, questioning assumptions",
+            "academic and research-oriented",
+            "data-focused, referring to metrics and numbers",
+            "philosophical and contemplative",
+            "direct and straightforward",
+            "metaphorical, using analogies",
+            "skeptical but constructive",
+            "enthusiastic but measured"
+        ]
+        
+        # Define comment structures for more variety
+        comment_structures = [
+            "Start with an insight, then ask a question",
+            "Begin with a counterpoint, then find common ground",
+            "Offer a complementary perspective building on the tweet",
+            "Provide historical context to the tweet's topic",
+            "Connect the tweet to a larger market trend or pattern",
+            "Analyze technical implications of the tweet's subject",
+            "Relate the tweet to a specific regulatory development",
+            "Compare the tweet's subject with a parallel in traditional finance",
+            "Discuss potential future implications of the tweet's content",
+            "Share a specific metric or data point related to the tweet"
+        ]
+        
+        # Define response tones to further differentiate
+        response_tones = [
+            "thoughtfully optimistic",
+            "cautiously analytical",
+            "intellectually curious",
+            "constructively critical",
+            "pragmatically neutral",
+            "deliberately provocative (but respectful)",
+            "historically informed",
+            "forward-looking",
+            "data-driven",
+            "strategically minded"
+        ]
+        
+        # Generate random combinations
+        persona = random.choice(personas)
+        style = random.choice(writing_styles)
+        structure = random.choice(comment_structures)
+        tone = random.choice(response_tones)
+        
+        # Incorporate a randomized technical depth level
+        technical_depth = random.choice(["beginner-friendly", "intermediate", "advanced"])
+        
+        # Extract tweet topics to ensure relevance
+        prompt = f"""
+        You are a {persona} with a {style} writing style, responding with a {tone} tone. 
+        I want you to generate a unique, insightful comment on the following tweet by @{username}:
+
+        Tweet: {tweet_data['text']}
+
+        Your response structure: {structure}
+        Technical complexity level: {technical_depth}
+
+        Please create a comment that:
+        1. Reflects your specific persona's perspective and expertise
+        2. Uses your assigned writing style consistently
+        3. Demonstrates genuine domain knowledge about crypto/blockchain/web3
+        4. Takes a unique angle that wouldn't be obvious to most people
+        5. References specific concepts, projects, or developments relevant to the tweet
+        6. Avoids generic responses like "Interesting perspective" or "Great point"
+        7. Is under 280 characters but information-dense
+        8. May include ONE specific question that shows deep understanding
+        9. Uses at most 1 emoji if appropriate, placed strategically
+        10. Creates a comment that feels like it comes from a real crypto expert with a specific viewpoint
+        11. Has a distinctive voice that couldn't be confused with other comments
+
+        Format: Just provide the comment text directly, no additional context or explanations.
+        """
+
+        try:
+            response = self.model.generate_content(prompt)
+            comment = response.text.strip()
+            
+            # Ensure the comment is not too long
+            if len(comment) > 280:
+                comment = comment[:277] + "..."
+
+            logger.info(f"Generated comment: {comment}")
+            return comment
+        except Exception as e:
+            logger.error(f"Error generating comment: {str(e)}")
+            logger.info("Using fallback comment instead")
+            # Return a fallback comment if generation fails
+            return f"Interesting perspective @{username}! This connects well with recent developments in the space."
