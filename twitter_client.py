@@ -60,12 +60,12 @@ class TwitterClient:
         
         # Geliştirilmiş tarayıcı başlatma
         self.browser = self.playwright.chromium.launch(
-            headless=False,  # Set to False to see what's happening
+            headless=True,  # Set to False to see what's happening
             args=browser_args,
             channel="chrome",  # Normal Chrome kullan (varsa)
             slow_mo=50  # Daha doğal etkileşim için yavaşlatma (milisaniye)
         )
-        logger.info("Browser launched successfully in visible mode")
+        logger.info("Browser launched successfully in headless mode")
         
         # İyileştirilmiş tarayıcı bağlamı
         self.context = self.browser.new_context(
