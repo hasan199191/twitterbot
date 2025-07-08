@@ -794,4 +794,4 @@ class TwitterClient:
                 
         except Exception as e:
             logger.error(f"Error getting recent tweets from @{username}: {str(e)}")
-            return []
+            return []   
