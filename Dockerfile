@@ -36,4 +36,4 @@ ENV GOOGLE_CHROME_BIN=/usr/bin/google-chrome
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # Run script with Xvfb for headed Playwright/Chrome
-CMD ["xvfb-run", "-a", "python", "web_main.py"]
+CMD ["python", "web_main.py"]
