@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y \
     libpangocairo-1.0-0 \
     libcairo2 \
     libatspi2.0-0 \
+    xvfb \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
@@ -58,4 +59,4 @@ RUN playwright install-deps
 ENV PYTHONUNBUFFERED=1
 
 # Uygulamayı başlat
-CMD ["python", "main.py"]
+CMD ["xvfb-run", "-a", "python", "web_main.py"]
