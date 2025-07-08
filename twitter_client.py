@@ -21,34 +21,44 @@ class TwitterClient:
         self.is_logged_in = True  # Changed to True since we assume browser opens logged in
         
     def _setup_browser(self):
-        """Initialize the browser with appropriate settings"""
-        logger.info("Setting up browser")
+        """Initialize the browser with persistent context and advanced stealth"""
+        logger.info("Setting up browser (persistent context, headed mode)")
         self.playwright = sync_playwright().start()
-        
-        # Performans için geliştirilmiş tarayıcı argümanları
+
+        # Persistent user data dir (use /tmp on Render, or local dir)
+        user_data_dir = os.environ.get("BROWSER_USER_DATA_DIR", "/tmp/chrome-user-data")
+        os.makedirs(user_data_dir, exist_ok=True)
+
+        # Browser args
         browser_args = [
-            "--no-sandbox", 
-            "--disable-setuid-sandbox", 
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
-            "--enable-gpu",  # GPU hızlandırmayı etkinleştir
-            "--disable-features=IsolateOrigins,site-per-process",  # İzolasyonu azaltarak hız kazanma
+            "--enable-gpu",
+            "--disable-features=IsolateOrigins,site-per-process",
             "--disable-site-isolation-trials",
             "--enable-features=NetworkService,NetworkServiceInProcess",
-            "--force-gpu-rasterization",  # Grafik hızlandırma
+            "--force-gpu-rasterization",
             "--disable-accelerated-video-decode=false",
-            "--window-size=1920,1080"  # Tam boyutlu pencere
+            "--window-size=1920,1080",
+            "--start-maximized",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+            "--disable-notifications",
+            "--disable-popup-blocking",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
         ]
         logger.info(f"Browser arguments: {browser_args}")
-        
+
         # Check if storage state exists and is valid
         storage_path = Path(self.session_file)
         storage_state = None
-        
         if storage_path.exists():
             try:
-                # Check if file contains valid JSON
                 import json
-                with open(storage_path, 'r') as f:
+                with open(storage_path, '"r") as f:
                     json.load(f)
                 storage_state = str(storage_path)
                 logger.info(f"Using existing session file: {storage_path}")
@@ -57,39 +67,34 @@ class TwitterClient:
                 storage_state = None
         else:
             logger.info("No session file found, will create new session")
-        
-        # Geliştirilmiş tarayıcı başlatma
-        self.browser = self.playwright.chromium.launch(
-            headless=True,  # Render veya sunucu ortamı için headless modda çalıştır
+
+        # Use launch_persistent_context for real user profile
+        self.context = self.playwright.chromium.launch_persistent_context(
+            user_data_dir=user_data_dir,
+            headless=False,  # Headed mode for stealth
             args=browser_args,
-            channel="chrome",  # Normal Chrome kullan (varsa)
-            slow_mo=0  # Headless modda yavaşlatmaya gerek yok
+            channel="chrome",
+            viewport={"width": 1920, "height": 1080},
+            device_scale_factor=1.0,
+            has_touch=False,
+            ignore_https_errors=True,
+            is_mobile=False,
+            java_script_enabled=True,
+            locale="en-US",
+            timezone_id="Europe/Istanbul",
+            color_scheme="light",
+            permissions=["geolocation", "notifications"],
+            geolocation={"longitude": 28.9784, "latitude": 41.0082},
+            storage_state=storage_state,
+            user_agent=get_random_user_agent(),
+            slow_mo=0
         )
-        logger.info("Browser launched successfully in headless mode")
-        
-        # İyileştirilmiş tarayıcı bağlamı
-        # Stealth/fingerprint ayarları
-        context_args = {
-            "user_agent": get_random_user_agent(),
-            "storage_state": storage_state,
-            "viewport": {"width": 1920, "height": 1080},
-            "device_scale_factor": 1.0,
-            "has_touch": False,
-            "ignore_https_errors": True,
-            # Bot tespitini azaltmak için ek parametreler
-            "is_mobile": False,
-            "java_script_enabled": True,
-            "locale": "en-US",
-            "timezone_id": "Europe/Istanbul",
-            "color_scheme": "light",
-            "permissions": ["geolocation", "notifications"],
-            "geolocation": {"longitude": 28.9784, "latitude": 41.0082},
-        }
-        self.context = self.browser.new_context(**context_args)
-        # WebGL ve navigator ayarlarını insan gibi yapmak için script ekle
+        logger.info("Persistent browser context created (headed mode, stealth)")
+
+        # Add advanced stealth/fingerprint evasion
         self.context.add_init_script(
             """
-            // WebGL vendor spoof
+            // Stealth: navigator, webdriver, languages, platform, plugins, chrome, WebGL, permissions, media, etc.
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
             Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
             Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
@@ -109,28 +114,42 @@ class TwitterClient:
                 Promise.resolve({ state: Notification.permission }) :
                 originalQuery(parameters)
             );
-            // User-Agent spoof (ekstra, Playwright zaten ayarlıyor)
-            // Object.defineProperty(navigator, 'userAgent', {get: () => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'});
+            // Media devices spoof
+            Object.defineProperty(navigator, 'mediaDevices', {get: () => ({ enumerateDevices: () => Promise.resolve([{kind:'videoinput'}]) })});
+            // HardwareConcurrency spoof
+            Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
+            // DeviceMemory spoof
+            Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+            // Touch support spoof
+            Object.defineProperty(navigator, 'maxTouchPoints', {get: () => 0});
+            // Color depth spoof
+            Object.defineProperty(screen, 'colorDepth', {get: () => 24});
+            // Mouse movement simulation
+            window.addEventListener('DOMContentLoaded', () => {
+                const evt = new MouseEvent('mousemove', {clientX:100, clientY:100});
+                document.dispatchEvent(evt);
+            });
             """
         )
-        logger.info("Browser context created (stealth mode)")
-        
-        # Create page
-        self.page = self.context.new_page()
+
+        # Create page (use first page if exists, else new)
+        if self.context.pages:
+            self.page = self.context.pages[0]
+        else:
+            self.page = self.context.new_page()
         logger.info("Browser page created")
-        
-        # Navigate directly to Twitter home page - changed to use domcontentloaded instead of networkidle
+
+        # Navigate directly to Twitter home page
         try:
             logger.info("Navigating directly to Twitter home page")
-            self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=120000)  # 60s → 120s
+            self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=120000)
             logger.info("Successfully navigated to Twitter home page")
-            random_delay(8, 15)  # 3-5s → 8-15s arttırıldı
+            random_delay(8, 15)
         except Exception as e:
             logger.error(f"Error navigating to Twitter home: {str(e)}")
             self.page.screenshot(path="navigation_error.png")
-        
-        # SÜRE İYİLEŞTİRMESİ 2: Genel timeout ayarı
-        self.page.set_default_timeout(120000)  # 60s → 120s
+
+        self.page.set_default_timeout(120000)
         logger.info("Default timeout set to 120 seconds")
     
     def _split_into_tweets(self, content):
@@ -431,8 +450,8 @@ class TwitterClient:
             # Navigate to compose tweet page directly
             compose_url = "https://twitter.com/compose/tweet"
             logger.info(f"Navigating to {compose_url}")
-            self.page.goto(compose_url, wait_until="domcontentloaded", timeout=120000)  # 60s → 120s
-            random_delay(10, 20)  # 5-8s → 10-20s arttırıldı
+            self.page.goto(compose_url, wait_until="domcontentloaded", timeout=120000)
+            random_delay(10, 20)
             
             # Screenshot for debugging
             self.page.screenshot(path="compose_page_loaded.png")
@@ -442,7 +461,6 @@ class TwitterClient:
             logger.info(f"Entering content for tweet 1/{len(content_list)}")
             first_tweet_content = content_list[0]
             
-            # SÜRE İYİLEŞTİRMESİ 4: Textarea bekleme süresi
             textarea_selectors = [
                 '[data-testid="tweetTextarea_0"]',
                 'div[role="textbox"][data-testid="tweetTextarea_0"]',
@@ -455,12 +473,10 @@ class TwitterClient:
             for selector in textarea_selectors:
                 try:
                     logger.info(f"Trying textarea selector: {selector}")
-                    # Wait for textarea with longer timeout
-                    textarea = self.page.wait_for_selector(selector, state="visible", timeout=60000)  # 30s → 60s
+                    textarea = self.page.wait_for_selector(selector, state="visible", timeout=60000)
                     if textarea:
                         logger.info(f"Found textarea with selector: {selector}")
                         textarea_found = True
-                        # Enter content
                         self.page.fill(selector, first_tweet_content)
                         logger.info("Entered content for first tweet")
                         random_delay(2, 3)
@@ -469,24 +485,16 @@ class TwitterClient:
                     logger.info(f"Selector {selector} failed: {str(e)}")
             
             if not textarea_found:
-                # Try JavaScript as last resort
-                logger.info("Using JavaScript to fill tweet content")
-                js_result = self.page.evaluate('''(content) => {
-                    // Try to find textareas by common characteristics
-                    const textareas = Array.from(document.querySelectorAll('div[role="textbox"], div[contenteditable="true"]'));
-                    if (textareas.length > 0) {
-                        textareas[0].innerText = content;
-                        return true;
-                    }
-                    return false;
-                }''', first_tweet_content)
-                
-                if js_result:
-                    textarea_found = True
-                    logger.info("Filled textarea using JavaScript")
-            
-            if not textarea_found:
+                # Save page HTML and screenshot for debugging
+                html_content = self.page.content()
+                with open("compose_debug.html", "w", encoding="utf-8") as f:
+                    f.write(html_content)
                 self.page.screenshot(path="textarea_not_found.png")
+                # Check for login/captcha or unexpected page
+                if "Log in" in html_content or "login" in self.page.url or "captcha" in html_content.lower():
+                    logger.error("Login or captcha page detected! Bot cannot proceed.")
+                else:
+                    logger.error("Could not find tweet textarea. See compose_debug.html and textarea_not_found.png for details.")
                 raise Exception("Could not find tweet textarea")
                 
             # Add remaining tweets to thread
