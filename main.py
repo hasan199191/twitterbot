@@ -425,8 +425,39 @@ def healthz():
 def start_web():
     app.run(host="0.0.0.0", port=8080)
 
+def main():
+    twitter_client = TwitterClient()
+
+    # 1. Takip edilen hesapların tweetlerini paylaş
+    try:
+        twitter_client._setup_browser()
+        # ...ilgili fonksiyonları çağır...
+    except Exception as e:
+        logger.error(f"Tweet paylaşırken hata: {str(e)}")
+    finally:
+        twitter_client.close()
+
+    # 2. Belirlenen konularda içerik oluşturup paylaş
+    try:
+        twitter_client._setup_browser()
+        # ...ilgili fonksiyonları çağır...
+    except Exception as e:
+        logger.error(f"İçerik paylaşırken hata: {str(e)}")
+    finally:
+        twitter_client.close()
+
+    # 3. Takip edilen hesapların tweetlerine yorum yap
+    try:
+        twitter_client._setup_browser()
+        # ...ilgili fonksiyonları çağır...
+    except Exception as e:
+        logger.error(f"Yorum yaparken hata: {str(e)}")
+    finally:
+        twitter_client.close()
+
 if __name__ == "__main__":
     threading.Thread(target=start_web, daemon=True).start()
+    main()
     while True:
         run_bot()
         time.sleep(60 * 60)  # Her saat başı çalıştır

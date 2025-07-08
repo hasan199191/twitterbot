@@ -87,7 +87,10 @@ class TwitterClient:
             viewport={"width": 1920, "height": 1080},
             device_scale_factor=1.0,
             has_touch=False,
-            ignore_https_errors=True
+            ignore_https_errors=True,
+            java_script_enabled=True,
+            locale="en-US",
+            timezone_id="Europe/Istanbul"
         )
         logger.info("Browser context created")
         
@@ -399,9 +402,11 @@ class TwitterClient:
 
     def post_tweet_thread(self, content_list):
         """Post a thread of tweets"""
-        # No need to check login since browser opens already logged in
-        
         try:
+            if not self.page or self.page.is_closed():
+                logger.error("Page is closed before posting thread, re-initializing browser.")
+                self.close()
+                self._setup_browser()
             logger.info(f"Posting a thread with {len(content_list)} tweets")
             
             # Navigate to compose tweet page directly
@@ -550,6 +555,10 @@ class TwitterClient:
                 
         except Exception as e:
             logger.error(f"Thread posting failed: {str(e)}")
+            # Tarayıcı kapanırsa tekrar başlat
+            if "closed" in str(e).lower():
+                self.close()
+                self._setup_browser()
             return False
             
         return True
@@ -577,7 +586,7 @@ class TwitterClient:
             
             for selector in selectors:
                 try:
-                    tweet_element = self.page.wait_for_selector(selector, timeout=10000)
+                    tweet_element = self.page.wait_for_selector(selector, timeout=20000)  # 10.000 → 20.000 ms
                     if tweet_element:
                         tweet_found = True
                         logger.info(f"Found tweet with selector: {selector}")
