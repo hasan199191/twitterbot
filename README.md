@@ -10,6 +10,7 @@ A automated Twitter bot that posts about Web3 projects and comments on tweets fr
 - Gmail integration for verification codes
 - Randomized posting schedule
 - Human-like delays and behavior
+  
 
 ## Setup
 
