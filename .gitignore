@@ -30,7 +30,7 @@ wheels/
 *.db
 
 # Session files
-twitter_session.json
+# twitter_session.json dosyasını GIT'a dahil et (Render için gereklidir)
 
 # Screenshots
 screenshots/
