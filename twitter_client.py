@@ -957,16 +957,13 @@ class TwitterClient:
                 logger.warning(f"[DIAG] Could not save screenshot/HTML after username: {str(e)}")
 
 
-            # Wait up to 90s for next step: password, email, or challenge (2FA)
+
+            # Wait up to 90s for next step: password or challenge (2FA) ONLY, skip email step
             found_next = False
             for i in range(90):
                 if self.page.query_selector('input[name="password"]'):
                     logger.info("Password input detected after username entry.")
                     found_next = 'password'
-                    break
-                if self.page.query_selector('input[name="email"]'):
-                    logger.info("Email input detected after username entry.")
-                    found_next = 'email'
                     break
                 # Check for error or challenge messages
                 error_box = self.page.query_selector('[role="alert"], [data-testid="LoginForm_Login_Button_error"]')
@@ -998,20 +995,10 @@ class TwitterClient:
                 _time.sleep(1)
 
             if not found_next:
-                logger.error("No password/email/challenge input appeared after username entry (90s timeout). See login_after_username.png/html for diagnostics.")
+                logger.error("No password/challenge input appeared after username entry (90s timeout). See login_after_username.png/html for diagnostics.")
                 return False
 
-            # Eğer e-posta sorulursa doldur
-            if found_next == 'email':
-                try:
-                    email = os.getenv("TWITTER_EMAIL")
-                    if email:
-                        self.page.fill('input[name="email"]', email)
-                        self.page.keyboard.press('Enter')
-                        logger.info("E-posta girildi ve Enter'a basıldı")
-                        self.page.wait_for_timeout(4000)
-                except Exception as e:
-                    logger.info(f"E-posta inputu kontrolü: {str(e)}")
+            # E-posta adımı tamamen atlandı
 
             # Eğer challenge/2FA ise
             if found_next == 'challenge':
