@@ -879,127 +879,162 @@ class TwitterClient:
             return []
     
     def _auto_login(self):
-        def handle_verification_code(page):
-            """Eğer doğrulama kodu istenirse Gmail'den kodu çekip ilgili inputa girer."""
-            import re
-            from gmail_reader import GmailReader
-            import time as _time
-            logger.info("Doğrulama kodu isteniyor, Gmail'den kod aranıyor...")
-            # Doğrulama kodu inputunu ve kodu almak için 2 dakika boyunca dene
-            max_wait = 120
-            for i in range(max_wait):
-                code_input = page.query_selector('input[name="text"]')
-                if code_input:
-                    try:
-                        gmail = GmailReader()
-                        code = gmail.get_latest_twitter_code()
-                        if code:
-                            logger.info(f"Gmail'den doğrulama kodu bulundu: {code}")
-                            page.fill('input[name="text"]', code)
-                            # Kod girildikten sonra biraz bekle
-                            page.wait_for_timeout(2000)
-                            # Önce Enter, sonra İleri butonu denenir
-                            try:
-                                page.keyboard.press('Enter')
-                                logger.info("Doğrulama kodu sonrası Enter'a basıldı.")
-                            except Exception as e:
-                                logger.info(f"Doğrulama kodu sonrası Enter basılamadı: {str(e)}")
-                            page.wait_for_timeout(2000)
-                            ileri_buton = page.query_selector('div[role="button"][data-testid="LoginForm_Login_Button"]')
-                            if ileri_buton:
-                                ileri_buton.click()
-                                logger.info("Doğrulama kodu sonrası İleri/Giriş Yap butonuna tıklandı.")
-                            page.wait_for_timeout(3000)
-                            return True
-                        else:
-                            logger.info(f"[{i+1}/{max_wait}] Kod henüz gelmedi, tekrar denenecek...")
-                    except Exception as e:
-                        logger.info(f"[{i+1}/{max_wait}] Kod alınamadı: {str(e)}")
-                _time.sleep(1)
-            logger.error("2 dakika içinde doğrulama kodu alınamadı veya input bulunamadı!")
-            return False
-
-        """Twitter login page üzerinden kullanıcı adı ve şifre ile otomatik giriş yap."""
+        """
+        Gelişmiş fallback/retry ve alternatif selector'larla otomatik Twitter login.
+        """
         import os
         username = os.getenv("TWITTER_USERNAME")
         password = os.getenv("TWITTER_PASSWORD")
         if not username or not password:
             logger.error("TWITTER_USERNAME veya TWITTER_PASSWORD .env dosyasında tanımlı değil!")
             return False
-        try:
-            logger.info("Otomatik login başlatılıyor...")
-            self.page.goto("https://twitter.com/login", wait_until="domcontentloaded", timeout=120000)
-            # Kullanıcı adı inputunu doldur
-            self.page.wait_for_selector('input[name="text"]', timeout=60000)
-            self.page.fill('input[name="text"]', username)
-            # Next butonuna tıkla (rol tabanlı, daha stabil)
+
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
             try:
-                next_button = self.page.get_by_role("button", name="Next")
-                next_button.click()
-                logger.info("Next butonuna tıklandı (kullanıcı adı sonrası)")
-            except Exception as e:
-                logger.warning(f"Next butonuna tıklanamadı: {str(e)}")
-            self.page.wait_for_timeout(4000)
+                logger.info(f"[Login Attempt {attempt}] Otomatik login başlatılıyor...")
+                self.page.goto("https://twitter.com/login", wait_until="domcontentloaded", timeout=120000)
 
-            # DIAGNOSTIC: Save screenshot and HTML after username entry
-            try:
-                self.page.screenshot(path="login_after_username.png")
-                with open("login_after_username.html", "w", encoding="utf-8") as f:
-                    f.write(self.page.content())
-                logger.info(f"[DIAG] Screenshot and HTML saved after username entry. Current URL: {self.page.url}")
-            except Exception as e:
-                logger.warning(f"[DIAG] Could not save screenshot/HTML after username: {str(e)}")
+                # Kullanıcı adı inputu için alternatif selector denemeleri
+                username_selectors = [
+                    'input[name="text"]',
+                    'input[autocomplete="username"]',
+                    'input[type="text"]',
+                ]
+                username_filled = False
+                for selector in username_selectors:
+                    try:
+                        self.page.wait_for_selector(selector, timeout=8000)
+                        self.page.fill(selector, username)
+                        logger.info(f"Kullanıcı adı girildi: {selector}")
+                        username_filled = True
+                        break
+                    except Exception as e:
+                        logger.info(f"Kullanıcı adı selector {selector} başarısız: {str(e)}")
+                if not username_filled:
+                    logger.error("Kullanıcı adı inputu bulunamadı, alternatif yollar da başarısız!")
+                    self.page.screenshot(path="login_username_notfound.png")
+                    continue
 
+                # Next butonu için alternatifler
+                next_clicked = False
+                try:
+                    self.page.get_by_role("button", name="Next").click()
+                    logger.info("Next butonuna tıklandı (get_by_role)")
+                    next_clicked = True
+                except Exception as e:
+                    logger.info(f"get_by_role ile Next butonu bulunamadı: {str(e)}")
+                if not next_clicked:
+                    try:
+                        self.page.get_by_text("Next").click()
+                        logger.info("Next butonuna tıklandı (get_by_text)")
+                        next_clicked = True
+                    except Exception as e:
+                        logger.info(f"get_by_text ile Next butonu bulunamadı: {str(e)}")
+                if not next_clicked:
+                    # Klasik selector fallback
+                    try:
+                        self.page.click('div[role="button"]:has-text("Next")')
+                        logger.info("Next butonuna tıklandı (selector fallback)")
+                        next_clicked = True
+                    except Exception as e:
+                        logger.warning(f"Next butonu hiçbir yöntemle bulunamadı: {str(e)}")
 
+                self.page.wait_for_timeout(4000)
 
-            # Şifre inputunu bekle
-            try:
-                self.page.wait_for_selector('input[name="password"]', timeout=60000)
-            except Exception as e:
-                logger.error("Şifre inputu gelmedi (60s timeout). See login_after_username.png/html for diagnostics.")
-                return False
+                # DIAGNOSTIC: Save screenshot and HTML after username entry
+                try:
+                    self.page.screenshot(path="login_after_username.png")
+                    with open("login_after_username.html", "w", encoding="utf-8") as f:
+                        f.write(self.page.content())
+                    logger.info(f"[DIAG] Screenshot and HTML saved after username entry. Current URL: {self.page.url}")
+                except Exception as e:
+                    logger.warning(f"[DIAG] Could not save screenshot/HTML after username: {str(e)}")
 
-            # Şifreyi doldur ve Log in butonuna tıkla
-            try:
-                self.page.fill('input[name="password"]', password)
-                login_button = self.page.get_by_role("button", name="Log in")
-                login_button.click()
-                logger.info("Log in butonuna tıklandı (şifre sonrası)")
+                # Şifre inputu için alternatif selector denemeleri
+                password_selectors = [
+                    'input[name="password"]',
+                    'input[type="password"]',
+                ]
+                password_filled = False
+                for selector in password_selectors:
+                    try:
+                        self.page.wait_for_selector(selector, timeout=10000)
+                        self.page.fill(selector, password)
+                        logger.info(f"Şifre girildi: {selector}")
+                        password_filled = True
+                        break
+                    except Exception as e:
+                        logger.info(f"Şifre selector {selector} başarısız: {str(e)}")
+                if not password_filled:
+                    logger.error("Şifre inputu bulunamadı, alternatif yollar da başarısız!")
+                    self.page.screenshot(path="login_password_notfound.png")
+                    continue
+
+                # Log in butonu için alternatifler
+                login_clicked = False
+                try:
+                    self.page.get_by_role("button", name="Log in").click()
+                    logger.info("Log in butonuna tıklandı (get_by_role)")
+                    login_clicked = True
+                except Exception as e:
+                    logger.info(f"get_by_role ile Log in butonu bulunamadı: {str(e)}")
+                if not login_clicked:
+                    try:
+                        self.page.get_by_text("Log in").click()
+                        logger.info("Log in butonuna tıklandı (get_by_text)")
+                        login_clicked = True
+                    except Exception as e:
+                        logger.info(f"get_by_text ile Log in butonu bulunamadı: {str(e)}")
+                if not login_clicked:
+                    try:
+                        self.page.click('div[role="button"]:has-text("Log in")')
+                        logger.info("Log in butonuna tıklandı (selector fallback)")
+                        login_clicked = True
+                    except Exception as e:
+                        logger.warning(f"Log in butonu hiçbir yöntemle bulunamadı: {str(e)}")
+
                 self.page.wait_for_timeout(6000)
-            except Exception as e:
-                logger.error(f"Şifre inputu veya giriş işlemi sırasında hata: {str(e)}")
-                self.page.screenshot(path="login_password_error.png")
-                with open("login_password_error.html", "w", encoding="utf-8") as f:
-                    f.write(self.page.content())
-                logger.error(f"Mevcut URL (şifre beklerken): {self.page.url}")
-                return False
 
-            # Şifre sonrası 10 saniye bekle, ardından home sayfasına gitmeyi dene
-            import time as _time
-            _time.sleep(10)
-            try:
-                self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
-                logger.info("Şifre sonrası home sayfasına yönlendirildi.")
+                # CAPTCHA/challenge tespiti
+                try:
+                    if self.page.query_selector('text=verify you are human') or self.page.query_selector('iframe[src*="captcha"]'):
+                        logger.error("🧠 CAPTCHA veya insan doğrulama tespit edildi! Giriş devam edemez.")
+                        self.page.screenshot(path="login_captcha_detected.png")
+                        return False
+                except Exception as e:
+                    logger.info(f"CAPTCHA kontrolünde hata: {str(e)}")
+
+                # Şifre sonrası 10 saniye bekle, ardından home sayfasına gitmeyi dene
+                import time as _time
+                _time.sleep(10)
+                try:
+                    self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+                    logger.info("Şifre sonrası home sayfasına yönlendirildi.")
+                except Exception as e:
+                    logger.error(f"Home sayfasına yönlendirme hatası: {str(e)}")
+                    self.page.screenshot(path="goto_home_error.png")
+
+                # Giriş başarılı mı kontrol et
+                if self.page.url.startswith("https://x.com/home") or self.page.url.startswith("https://twitter.com/home"):
+                    logger.info("Otomatik login başarılı!")
+                    self.context.storage_state(path=self.session_file)
+                    return True
+                else:
+                    logger.error(f"Otomatik login başarısız! Son URL: {self.page.url}")
+                    self.page.screenshot(path="login_final_error.png")
+                    with open("login_final_error.html", "w", encoding="utf-8") as f:
+                        f.write(self.page.content())
             except Exception as e:
-                logger.error(f"Home sayfasına yönlendirme hatası: {str(e)}")
-                self.page.screenshot(path="goto_home_error.png")
-            # Giriş başarılı mı kontrol et
-            if self.page.url.startswith("https://x.com/home") or self.page.url.startswith("https://twitter.com/home"):
-                logger.info("Otomatik login başarılı!")
-                self.context.storage_state(path=self.session_file)
-                return True
-            else:
-                logger.error(f"Otomatik login başarısız! Son URL: {self.page.url}")
-                self.page.screenshot(path="login_final_error.png")
-                with open("login_final_error.html", "w", encoding="utf-8") as f:
-                    f.write(self.page.content())
-                return False
-        except Exception as e:
-            logger.error(f"Otomatik login sırasında hata: {str(e)}")
-            try:
-                self.page.screenshot(path="login_unhandled_exception.png")
-                with open("login_unhandled_exception.html", "w", encoding="utf-8") as f:
-                    f.write(self.page.content())
-            except Exception as ee:
-                logger.warning(f"[DIAG] Could not save screenshot/HTML after exception: {str(ee)}")
-            return False
+                logger.error(f"[Login Attempt {attempt}] Otomatik login sırasında hata: {str(e)}")
+                try:
+                    self.page.screenshot(path=f"login_unhandled_exception_{attempt}.png")
+                    with open(f"login_unhandled_exception_{attempt}.html", "w", encoding="utf-8") as f:
+                        f.write(self.page.content())
+                except Exception as ee:
+                    logger.warning(f"[DIAG] Could not save screenshot/HTML after exception: {str(ee)}")
+            # Kısa bekle, tekrar dene
+            import time as _time
+            _time.sleep(2)
+        logger.error(f"Tüm otomatik login denemeleri başarısız oldu!")
+        return False
