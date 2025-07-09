@@ -61,15 +61,21 @@ class TwitterClient:
         
         # Geliştirilmiş tarayıcı başlatma
         # Ortama göre headless ayarı: Render veya X sunucusu yoksa headless=True
+        import platform
         is_render = os.environ.get("RENDER", "0") == "1" or os.environ.get("RENDER") == "true"
-        headless_mode = is_render or not os.environ.get("DISPLAY")
+        # Windows'ta DISPLAY yok, localde GUI için headless=False, Render'da headless=True
+        if is_render:
+            headless = True
+        elif platform.system() == "Windows":
+            headless = False
+        else:
+            headless = not os.environ.get("DISPLAY")
         self.browser = self.playwright.chromium.launch(
-            headless=headless_mode,
+            headless=headless,
             args=browser_args,
-            channel="chrome",
             slow_mo=50
         )
-        logger.info(f"Browser launched successfully with headless={headless_mode}")
+        logger.info(f"Browser launched successfully with headless={headless}")
         
         # İyileştirilmiş tarayıcı bağlamı
         self.context = self.browser.new_context(
@@ -108,16 +114,21 @@ class TwitterClient:
                 else:
                     logger.warning("Otomatik login başarısız. Manuel login denenecek.")
             # Otomatik login de başarısızsa manuel login (sadece localde, headless=False ise)
-            if not (os.environ.get("RENDER", "0") == "1" or os.environ.get("RENDER") == "true") and not os.environ.get("DISPLAY") is None:
+            if not (os.environ.get("RENDER", "0") == "1" or os.environ.get("RENDER") == "true") and (not os.environ.get("DISPLAY") is None or platform.system() == "Windows"):
                 logger.info("No valid session, opening login page for manual login...")
                 self.page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=120000)
                 logger.info("Lütfen tarayıcıda elle giriş yapın. Giriş yaptıktan sonra tarayıcıyı kapatabilirsiniz.")
-                for i in range(60):
-                    logger.info(f"Elle giriş için bekleniyor... ({60-i}s kaldı)")
+                last_url = None
+                for i in range(120):
+                    current_url = self.page.url
+                    if current_url != last_url:
+                        logger.info(f"Current URL: {current_url}")
+                        last_url = current_url
+                    if current_url.startswith("https://x.com/home") or current_url.startswith("https://twitter.com/home"):
+                        logger.info("Elle login başarılı! Session dosyası kaydediliyor.")
+                        self.context.storage_state(path=self.session_file)
+                        break
                     time.sleep(1)
-                if self.page.url.startswith("https://x.com/home"):
-                    logger.info("Elle login başarılı! Session dosyası kaydediliyor.")
-                    self.context.storage_state(path=self.session_file)
                 else:
                     logger.warning("Elle login başarısız veya tamamlanmadı.")
             else:
@@ -868,6 +879,35 @@ class TwitterClient:
             return []
     
     def _auto_login(self):
+        def handle_verification_code(page):
+            """Eğer doğrulama kodu istenirse Gmail'den kodu çekip ilgili inputa girer."""
+            import re
+            from gmail_reader import GmailReader
+            import time as _time
+            logger.info("Doğrulama kodu isteniyor, Gmail'den kod aranıyor...")
+            # Doğrulama kodu inputunu ve kodu almak için 1 dakika boyunca dene
+            max_wait = 60
+            for i in range(max_wait):
+                code_input = page.query_selector('input[name="text"]')
+                if code_input:
+                    try:
+                        gmail = GmailReader()
+                        code = gmail.get_latest_twitter_code()
+                        if code:
+                            logger.info(f"Gmail'den doğrulama kodu bulundu: {code}")
+                            page.fill('input[name="text"]', code)
+                            page.keyboard.press('Enter')
+                            logger.info("Doğrulama kodu girildi ve Enter'a basıldı.")
+                            page.wait_for_timeout(3000)
+                            return True
+                        else:
+                            logger.info(f"[{i+1}/{max_wait}] Kod henüz gelmedi, tekrar denenecek...")
+                    except Exception as e:
+                        logger.info(f"[{i+1}/{max_wait}] Kod alınamadı: {str(e)}")
+                _time.sleep(1)
+            logger.error("1 dakika içinde doğrulama kodu alınamadı veya input bulunamadı!")
+            return False
+
         """Twitter login page üzerinden kullanıcı adı ve şifre ile otomatik giriş yap."""
         import os
         username = os.getenv("TWITTER_USERNAME")
@@ -881,7 +921,19 @@ class TwitterClient:
             # Kullanıcı adı gir
             self.page.wait_for_selector('input[name="text"]', timeout=30000)
             self.page.fill('input[name="text"]', username)
-            self.page.click('div[role="button"][data-testid="LoginForm_Login_Button"]')
+            # Enter tuşuna bas veya İleri butonuna tıkla
+            import time as _time
+            try:
+                self.page.keyboard.press('Enter')
+                logger.info("Enter tuşuna basıldı (kullanıcı adı sonrası)")
+            except Exception as e:
+                logger.info(f"Enter tuşu basılamadı: {str(e)}")
+            self.page.wait_for_timeout(2000)
+            # Alternatif olarak İleri butonuna tıkla (varsa)
+            ileri_buton = self.page.query_selector('div[role="button"][data-testid="LoginForm_Login_Button"]')
+            if ileri_buton:
+                ileri_buton.click()
+                logger.info("İleri butonuna tıklandı (kullanıcı adı sonrası)")
             self.page.wait_for_timeout(2000)
             # Eğer e-posta sorulursa doldur
             try:
@@ -890,17 +942,35 @@ class TwitterClient:
                     email = os.getenv("TWITTER_EMAIL")
                     if email:
                         self.page.fill('input[name="email"]', email)
-                        self.page.click('div[role="button"][data-testid="LoginForm_Login_Button"]')
+                        self.page.keyboard.press('Enter')
+                        logger.info("E-posta girildi ve Enter'a basıldı")
                         self.page.wait_for_timeout(2000)
             except Exception as e:
                 logger.info(f"E-posta inputu kontrolü: {str(e)}")
             # Şifre gir
             self.page.wait_for_selector('input[name="password"]', timeout=30000)
             self.page.fill('input[name="password"]', password)
-            self.page.click('div[role="button"][data-testid="LoginForm_Login_Button"]')
+            # Enter tuşuna bas veya Giriş Yap butonuna tıkla
+            try:
+                self.page.keyboard.press('Enter')
+                logger.info("Enter tuşuna basıldı (şifre sonrası)")
+            except Exception as e:
+                logger.info(f"Enter tuşu basılamadı (şifre sonrası): {str(e)}")
+            self.page.wait_for_timeout(2000)
+            giris_buton = self.page.query_selector('div[role="button"][data-testid="LoginForm_Login_Button"]')
+            if giris_buton:
+                giris_buton.click()
+                logger.info("Giriş Yap butonuna tıklandı (şifre sonrası)")
             self.page.wait_for_timeout(5000)
+            # Eğer doğrulama kodu istenirse input[name="text"] tekrar çıkabilir (şifre sonrası)
+            # Twitter bazen kod ekranında "Doğrulama kodu" başlığı veya "Enter it below" gibi bir metin gösterir
+            if self.page.query_selector('input[name="text"]'):
+                logger.info("Doğrulama kodu ekranı algılandı, kod çekilecek...")
+                if not handle_verification_code(self.page):
+                    logger.error("Doğrulama kodu girilemedi!")
+                    return False
             # Giriş başarılı mı kontrol et
-            if self.page.url.startswith("https://x.com/home"):
+            if self.page.url.startswith("https://x.com/home") or self.page.url.startswith("https://twitter.com/home"):
                 logger.info("Otomatik login başarılı!")
                 self.context.storage_state(path=self.session_file)
                 return True

@@ -19,128 +19,44 @@ class GmailReader:
         if not self.email_address or not self.password:
             raise ValueError("EMAIL_ADDRESS or GMAIL_APP_PASSWORD environment variables not set")
     
-    def get_twitter_verification_code(self):
-        """Get Twitter verification code from Gmail"""
+    def get_latest_twitter_code(self):
+        """Gmail'de konu başlığı 'X doğrulama kodun <kod>' olan en son mailden kodu döndürür."""
         try:
-            logger.info("Connecting to Gmail to get Twitter/X verification code")
-            
-            # Connect to Gmail
+            logger.info("Connecting to Gmail to get X doğrulama kodu")
             mail = imaplib.IMAP4_SSL("imap.gmail.com")
             mail.login(self.email_address, self.password)
             mail.select("inbox")
-            logger.info("Successfully connected to Gmail inbox")
-            
-            # First try to find emails with the exact subject pattern "Your X confirmation code is..."
-            specific_subject = '(SUBJECT "Your X confirmation code is")'
-            logger.info(f"Searching with very specific criteria: {specific_subject}")
-            status, data = mail.search(None, specific_subject)
-            
-            if status == "OK" and data[0]:
-                email_ids = data[0].split()
-                if email_ids:
-                    latest_email_id = email_ids[-1]
-                    logger.info(f"Found exact match email with ID: {latest_email_id}")
-                    
-                    # Fetch the email
-                    status, email_data = mail.fetch(latest_email_id, "(RFC822)")
-                    if status == "OK":
-                        raw_email = email_data[0][1]
-                        msg = email.message_from_bytes(raw_email)
-                        subject = decode_header(msg["Subject"])[0][0]
-                        if isinstance(subject, bytes):
-                            subject = subject.decode()
-                        
-                        logger.info(f"Email subject: {subject}")
-                        
-                        # Extract code from the subject line (format: "Your X confirmation code is b7q3ve6g")
-                        code_match = re.search(r'confirmation code is (\w+)', subject)
-                        if code_match:
-                            code = code_match.group(1)
-                            logger.info(f"Extracted confirmation code from subject: {code}")
-                            
-                            # Mark email as read
-                            mail.store(latest_email_id, "+FLAGS", "\\Seen")
-                            mail.close()
-                            mail.logout()
-                            
-                            return code
-            
-            # If we didn't find an exact match, try more general searches
-            logger.info("No exact match found, trying broader search criteria")
-            search_criteria = [
-                '(FROM "info@x.com" SUBJECT "confirmation code")',  # Don't limit to UNSEEN
-                '(SUBJECT "Your X confirmation code")'
-            ]
-            
-            for criteria in search_criteria:
-                logger.info(f"Searching with criteria: {criteria}")
-                status, data = mail.search(None, criteria)
-                if status == "OK" and data[0]:
-                    email_ids = data[0].split()
-                    if email_ids:
-                        # Get the latest email
-                        latest_email_id = email_ids[-1]
-                        logger.info(f"Found matching email with ID: {latest_email_id}")
-                        
-                        # Fetch the email
-                        status, email_data = mail.fetch(latest_email_id, "(RFC822)")
-                        
-                        if status == "OK":
-                            raw_email = email_data[0][1]
-                            msg = email.message_from_bytes(raw_email)
-                            subject = decode_header(msg["Subject"])[0][0]
-                            if isinstance(subject, bytes):
-                                subject = subject.decode()
-                                
-                            logger.info(f"Email subject: {subject}")
-                            
-                            # Check if subject contains "confirmation code is"
-                            if "confirmation code is" in subject:
-                                code_match = re.search(r'code is (\w+)', subject)
-                                if code_match:
-                                    code = code_match.group(1)
-                                    logger.info(f"Extracted code from subject: {code}")
-                                    
-                                    # Mark email as read
-                                    mail.store(latest_email_id, "+FLAGS", "\\Seen")
-                                    mail.close()
-                                    mail.logout()
-                                    
-                                    return code
-                            
-                            # If not in subject, check body but only for specific patterns
-                            for part in msg.walk():
-                                if part.get_content_type() in ["text/plain", "text/html"]:
-                                    try:
-                                        body = part.get_payload(decode=True).decode()
-                                        
-                                        # Only look for very specific patterns
-                                        specific_patterns = [
-                                            r'confirmation code is (\w+)',
-                                            r'verification code is (\w+)',
-                                            r'Your X confirmation code is (\w+)'
-                                        ]
-                                        
-                                        for pattern in specific_patterns:
-                                            code_match = re.search(pattern, body)
-                                            if code_match:
-                                                code = code_match.group(1)
-                                                logger.info(f"Extracted specific code from body: {code}")
-                                                
-                                                # Mark email as read
-                                                mail.store(latest_email_id, "+FLAGS", "\\Seen")
-                                                mail.close()
-                                                mail.logout()
-                                                
-                                                return code
-                                    except Exception as e:
-                                        logger.error(f"Error processing email part: {str(e)}")
-            
-            logger.warning("Could not find any Twitter/X verification code in emails")
+            # Son 20 maili kontrol et
+            status, data = mail.search(None, 'ALL')
+            if status != "OK":
+                logger.error("Gmail arama başarısız!")
+                mail.close()
+                mail.logout()
+                return None
+            email_ids = data[0].split()
+            for eid in reversed(email_ids[-20:]):
+                status, email_data = mail.fetch(eid, "(RFC822)")
+                if status != "OK":
+                    continue
+                raw_email = email_data[0][1]
+                msg = email.message_from_bytes(raw_email)
+                subject = decode_header(msg["Subject"])[0][0]
+                if isinstance(subject, bytes):
+                    subject = subject.decode()
+                logger.info(f"Email subject: {subject}")
+                match = re.match(r"X doğrulama kodun (\w+)", subject)
+                if match:
+                    code = match.group(1)
+                    logger.info(f"Konu başlığından doğrulama kodu bulundu: {code}")
+                    mail.store(eid, "+FLAGS", "\\Seen")
+                    mail.close()
+                    mail.logout()
+                    return code
             mail.close()
             mail.logout()
+            logger.warning("Uygun X doğrulama kodu başlıklı mail bulunamadı!")
             return None
-                
         except Exception as e:
-            logger.error(f"Error retrieving Twitter verification code: {str(e)}")
+            logger.error(f"Gmail'den doğrulama kodu alınırken hata: {str(e)}")
+            return None
             return None
