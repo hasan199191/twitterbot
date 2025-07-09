@@ -509,13 +509,18 @@ class TwitterClient:
                     }
                     return false;
                 }''', first_tweet_content)
-                
                 if js_result:
                     textarea_found = True
                     logger.info("Filled textarea using JavaScript")
-            
             if not textarea_found:
+                logger.error("Tweet textarea bulunamadı! Sayfa HTML ve screenshot kaydediliyor.")
                 self.page.screenshot(path="textarea_not_found.png")
+                with open("textarea_not_found.html", "w", encoding="utf-8") as f:
+                    f.write(self.page.content())
+                # Ayrıca challenge/captcha var mı diye logla
+                challenge = self.page.query_selector("input[name='captcha']") or self.page.query_selector("iframe[src*='captcha']") or self.page.query_selector("text=challenge")
+                if challenge:
+                    logger.error("Sayfada captcha veya challenge tespit edildi!")
                 raise Exception("Could not find tweet textarea")
                 
             # Add remaining tweets to thread
