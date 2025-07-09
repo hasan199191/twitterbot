@@ -975,12 +975,7 @@ class TwitterClient:
             # B: 2FA/verification adımı tamamen atlandı, sadece şifre inputu bekleniyor
             if not found_next:
                 logger.error("No password input appeared after username entry (90s timeout). See login_after_username.png/html for diagnostics.")
-
-            # E-posta ve 2FA/verification adımı tamamen atlandı
-            return False
-
-            # E-posta ve 2FA/verification adımı tamamen atlandı
-                    return False
+                return False
 
             # Şifre gir (wait up to 60s)
             try:
