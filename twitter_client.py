@@ -24,28 +24,26 @@ class TwitterClient:
         """Initialize the browser with appropriate settings"""
         logger.info("Setting up browser")
         self.playwright = sync_playwright().start()
-
+        
         # Performans için geliştirilmiş tarayıcı argümanları
         browser_args = [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
+            "--no-sandbox", 
+            "--disable-setuid-sandbox", 
             "--disable-dev-shm-usage",
-            "--enable-gpu",
-            "--disable-blink-features=AutomationControlled",
-            "--disable-infobars",
-            "--disable-web-security",
-            "--disable-features=IsolateOrigins,site-per-process",
+            "--enable-gpu",  # GPU hızlandırmayı etkinleştir
+            "--disable-features=IsolateOrigins,site-per-process",  # İzolasyonu azaltarak hız kazanma
             "--disable-site-isolation-trials",
-            "--window-size=1920,1080",
-            "--force-gpu-rasterization",
-            "--disable-accelerated-video-decode=false"
+            "--enable-features=NetworkService,NetworkServiceInProcess",
+            "--force-gpu-rasterization",  # Grafik hızlandırma
+            "--disable-accelerated-video-decode=false",
+            "--window-size=1920,1080"  # Tam boyutlu pencere
         ]
         logger.info(f"Browser arguments: {browser_args}")
-
+        
         # Check if storage state exists and is valid
         storage_path = Path(self.session_file)
         storage_state = None
-
+        
         if storage_path.exists():
             try:
                 # Check if file contains valid JSON
@@ -59,7 +57,7 @@ class TwitterClient:
                 storage_state = None
         else:
             logger.info("No session file found, will create new session")
-
+        
         # Geliştirilmiş tarayıcı başlatma
         self.browser = self.playwright.chromium.launch(
             headless=True,  # Set to False to see what's happening
@@ -67,8 +65,8 @@ class TwitterClient:
             channel="chrome",  # Normal Chrome kullan (varsa)
             slow_mo=50  # Daha doğal etkileşim için yavaşlatma (milisaniye)
         )
-        logger.info("Browser launched successfully in headless mode")
-
+        logger.info("Browser launched successfully in visible mode")
+        
         # İyileştirilmiş tarayıcı bağlamı
         self.context = self.browser.new_context(
             user_agent=get_random_user_agent(),
@@ -79,27 +77,57 @@ class TwitterClient:
             ignore_https_errors=True
         )
         logger.info("Browser context created")
-
+        
         # Create page
         self.page = self.context.new_page()
         logger.info("Browser page created")
-
+        
         # Navigate directly to Twitter home page - changed to use domcontentloaded instead of networkidle
         try:
             logger.info("Navigating directly to Twitter home page")
-            self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=300000)  # 5 dakika
+            self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=120000)  # 60s → 120s
             logger.info("Successfully navigated to Twitter home page")
-            random_delay(20, 30)  # Daha uzun bekleme
-            self.page.screenshot(path="after_home_load.png")
-            logger.info("Home page screenshot saved after navigation.")
+            random_delay(8, 15)  # 3-5s → 8-15s arttırıldı
         except Exception as e:
             logger.error(f"Error navigating to Twitter home: {str(e)}")
             self.page.screenshot(path="navigation_error.png")
-
+        
         # SÜRE İYİLEŞTİRMESİ 2: Genel timeout ayarı
-        self.page.set_default_timeout(180000)  # 3 dakika
-        logger.info("Default timeout set to 180 seconds")
+        self.page.set_default_timeout(120000)  # 60s → 120s
+        logger.info("Default timeout set to 120 seconds")
+
+        # Otomatik login dene
+        self._check_login_state()
+        if not self.is_logged_in:
+            logger.info("Otomatik login deneniyor...")
+            if self._auto_login():
+                self._check_login_state()
     
+    def _check_login_state(self):
+        """Check if the bot is logged in by looking for a UI element only visible when logged in."""
+        try:
+            # Look for the tweet compose box or user avatar
+            selectors = [
+                '[data-testid="SideNav_AccountSwitcher_Button"]',  # Avatar button
+                '[data-testid="tweetTextarea_0"]',  # Compose box
+                'a[aria-label*="Profile"]',
+                'div[aria-label*="Account menu"]',
+            ]
+            found = False
+            for selector in selectors:
+                if self.page.query_selector(selector):
+                    found = True
+                    logger.info(f"Login state check: found element '{selector}', session is valid and logged in.")
+                    break
+            if not found:
+                logger.warning("Login state check: could not find any logged-in UI elements. Session may be invalid or logged out.")
+                self.is_logged_in = False
+            else:
+                self.is_logged_in = True
+        except Exception as e:
+            logger.error(f"Login state check failed: {str(e)}")
+            self.is_logged_in = False
+
     def _split_into_tweets(self, content):
         """Split content into tweets while preserving sentence integrity"""
         # Give some buffer space for safety (URLs, emojis, etc.)
@@ -799,3 +827,32 @@ class TwitterClient:
         except Exception as e:
             logger.error(f"Error getting recent tweets from @{username}: {str(e)}")
             return []
+    
+    def _auto_login(self):
+        """Twitter login page üzerinden kullanıcı adı ve şifre ile otomatik giriş yap."""
+        import os
+        username = os.getenv("TWITTER_USERNAME")
+        password = os.getenv("TWITTER_PASSWORD")
+        if not username or not password:
+            logger.error("TWITTER_USERNAME veya TWITTER_PASSWORD .env dosyasında tanımlı değil!")
+            return False
+        try:
+            logger.info("Otomatik login başlatılıyor...")
+            self.page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=120000)
+            self.page.fill('input[name="text"]', username)
+            self.page.click('div[role="button"][data-testid="LoginForm_Login_Button"]')
+            self.page.wait_for_timeout(2000)
+            self.page.fill('input[name="password"]', password)
+            self.page.click('div[role="button"][data-testid="LoginForm_Login_Button"]')
+            self.page.wait_for_timeout(5000)
+            # Giriş başarılı mı kontrol et
+            if self.page.url.startswith("https://x.com/home"):
+                logger.info("Otomatik login başarılı!")
+                self.context.storage_state(path=self.session_file)
+                return True
+            else:
+                logger.error("Otomatik login başarısız! Lütfen bilgileri kontrol edin.")
+                return False
+        except Exception as e:
+            logger.error(f"Otomatik login sırasında hata: {str(e)}")
+            return False
