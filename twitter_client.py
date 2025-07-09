@@ -473,11 +473,23 @@ class TwitterClient:
             logger.info(f"Navigating to {compose_url}")
             self.page.goto(compose_url, wait_until="domcontentloaded", timeout=120000)  # 60s → 120s
             random_delay(10, 20)  # 5-8s → 10-20s arttırıldı
-            
-            # Screenshot for debugging
-            self.page.screenshot(path="compose_page_loaded.png")
-            logger.info("Compose page screenshot saved")
-            
+
+            # Compose page HTML & screenshot for diagnostics (hemen başta kaydet)
+            try:
+                self.page.screenshot(path="compose_page_loaded.png")
+                with open("compose_page_loaded.html", "w", encoding="utf-8") as f:
+                    f.write(self.page.content())
+                logger.info("Compose page screenshot and HTML saved (compose_page_loaded.*)")
+            except Exception as e:
+                logger.warning(f"Could not save compose page HTML/screenshot: {str(e)}")
+
+            # Compose sayfasında challenge/captcha/engelleme var mı kontrol et
+            page_html = self.page.content().lower()
+            challenge_keywords = ["challenge", "verify", "unusual activity", "something went wrong", "robot", "suspended", "blocked", "error"]
+            for keyword in challenge_keywords:
+                if keyword in page_html:
+                    logger.error(f"[COMPOSE] Sayfada '{keyword}' anahtarı tespit edildi! Muhtemelen bot engeli veya farklı bir ekran var. compose_page_loaded.html dosyasını inceleyin.")
+
             # Enter the first tweet
             logger.info(f"Entering content for tweet 1/{len(content_list)}")
             first_tweet_content = content_list[0]
@@ -525,6 +537,7 @@ class TwitterClient:
                     logger.info("Filled textarea using JavaScript")
             if not textarea_found:
                 logger.error("Tweet textarea bulunamadı! Sayfa HTML ve screenshot kaydediliyor.")
+                # Ekstra teşhis dosyası
                 self.page.screenshot(path="textarea_not_found.png")
                 with open("textarea_not_found.html", "w", encoding="utf-8") as f:
                     f.write(self.page.content())
@@ -532,6 +545,7 @@ class TwitterClient:
                 challenge = self.page.query_selector("input[name='captcha']") or self.page.query_selector("iframe[src*='captcha']") or self.page.query_selector("text=challenge")
                 if challenge:
                     logger.error("Sayfada captcha veya challenge tespit edildi!")
+                logger.error("compose_page_loaded.html dosyasını Render'dan indirip inceleyin. Twitter botu engelliyor olabilir!")
                 raise Exception("Could not find tweet textarea")
                 
             # Add remaining tweets to thread
