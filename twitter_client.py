@@ -17,8 +17,9 @@ class TwitterClient:
         self.browser = None
         self.context = None
         self.page = None
-        self.session_file = "twitter_session.json"
-        self.is_logged_in = True  # Changed to True since we assume browser opens logged in
+        # Session dosyasının tam yolunu kullan
+        self.session_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "twitter_session.json")
+        self.is_logged_in = False  # Varsayılan olarak False, login kontrolü yapılacak
         
     def _setup_browser(self):
         """Initialize the browser with appropriate settings"""
@@ -60,12 +61,12 @@ class TwitterClient:
         
         # Geliştirilmiş tarayıcı başlatma
         self.browser = self.playwright.chromium.launch(
-            headless=True,  # Set to False to see what's happening
+            headless=False,  # Elle giriş için False, Render'da tekrar True yapılabilir
             args=browser_args,
             channel="chrome",  # Normal Chrome kullan (varsa)
             slow_mo=50  # Daha doğal etkileşim için yavaşlatma (milisaniye)
         )
-        logger.info("Browser launched successfully in visible mode")
+        logger.info("Browser launched successfully in visible mode (headless=False)")
         
         # İyileştirilmiş tarayıcı bağlamı
         self.context = self.browser.new_context(
@@ -82,12 +83,27 @@ class TwitterClient:
         self.page = self.context.new_page()
         logger.info("Browser page created")
         
-        # Navigate directly to Twitter home page - changed to use domcontentloaded instead of networkidle
+        # Eğer session dosyası yoksa veya login değilse login sayfasına git
         try:
-            logger.info("Navigating directly to Twitter home page")
-            self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=120000)  # 60s → 120s
-            logger.info("Successfully navigated to Twitter home page")
-            random_delay(8, 15)  # 3-5s → 8-15s arttırıldı
+            if storage_state is None:
+                logger.info("No valid session, opening login page for manual login...")
+                self.page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=120000)
+                logger.info("Lütfen tarayıcıda elle giriş yapın. Giriş yaptıktan sonra tarayıcıyı kapatabilirsiniz.")
+                # Kullanıcıya zaman tanı
+                for i in range(60):
+                    logger.info(f"Elle giriş için bekleniyor... ({60-i}s kaldı)")
+                    time.sleep(1)
+                # Giriş başarılıysa session kaydet
+                if self.page.url.startswith("https://x.com/home"):
+                    logger.info("Elle login başarılı! Session dosyası kaydediliyor.")
+                    self.context.storage_state(path=self.session_file)
+                else:
+                    logger.warning("Elle login başarısız veya tamamlanmadı.")
+            else:
+                logger.info("Navigating directly to Twitter home page")
+                self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=120000)
+                logger.info("Successfully navigated to Twitter home page")
+                random_delay(8, 15)
         except Exception as e:
             logger.error(f"Error navigating to Twitter home: {str(e)}")
             self.page.screenshot(path="navigation_error.png")
