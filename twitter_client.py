@@ -946,48 +946,109 @@ class TwitterClient:
                 ileri_buton.click()
                 logger.info("İleri butonuna tıklandı (kullanıcı adı sonrası)")
             self.page.wait_for_timeout(4000)
-            # Eğer e-posta sorulursa doldur
+
+            # DIAGNOSTIC: Save screenshot and HTML after username entry
             try:
-                email_input = self.page.query_selector('input[name="email"]')
-                if email_input:
+                self.page.screenshot(path="login_after_username.png")
+                with open("login_after_username.html", "w", encoding="utf-8") as f:
+                    f.write(self.page.content())
+                logger.info(f"[DIAG] Screenshot and HTML saved after username entry. Current URL: {self.page.url}")
+            except Exception as e:
+                logger.warning(f"[DIAG] Could not save screenshot/HTML after username: {str(e)}")
+
+            # Wait up to 90s for next step: password, email, or challenge
+            found_next = False
+            for i in range(90):
+                if self.page.query_selector('input[name="password"]'):
+                    logger.info("Password input detected after username entry.")
+                    found_next = 'password'
+                    break
+                if self.page.query_selector('input[name="email"]'):
+                    logger.info("Email input detected after username entry.")
+                    found_next = 'email'
+                    break
+                # Check for error or challenge messages
+                error_box = self.page.query_selector('[role="alert"], [data-testid="LoginForm_Login_Button_error"]')
+                if error_box:
+                    logger.error(f"[DIAG] Error or alert after username: {error_box.inner_text()}")
+                # Check for suspicious login/challenge
+                challenge = self.page.query_selector('input[name="text"]')
+                if challenge:
+                    logger.info("Verification code input detected after username entry (challenge/2FA)")
+                    found_next = 'challenge'
+                    break
+                _time.sleep(1)
+
+            if not found_next:
+                logger.error("No password/email/challenge input appeared after username entry (90s timeout). See login_after_username.png/html for diagnostics.")
+                return False
+
+            # Eğer e-posta sorulursa doldur
+            if found_next == 'email':
+                try:
                     email = os.getenv("TWITTER_EMAIL")
                     if email:
                         self.page.fill('input[name="email"]', email)
                         self.page.keyboard.press('Enter')
                         logger.info("E-posta girildi ve Enter'a basıldı")
                         self.page.wait_for_timeout(4000)
-            except Exception as e:
-                logger.info(f"E-posta inputu kontrolü: {str(e)}")
-            # Şifre gir
-            self.page.wait_for_selector('input[name="password"]', timeout=60000)
-            self.page.fill('input[name="password"]', password)
-            # Enter tuşuna bas veya Giriş Yap butonuna tıkla
-            try:
-                self.page.keyboard.press('Enter')
-                logger.info("Enter tuşuna basıldı (şifre sonrası)")
-            except Exception as e:
-                logger.info(f"Enter tuşu basılamadı (şifre sonrası): {str(e)}")
-            self.page.wait_for_timeout(4000)
-            giris_buton = self.page.query_selector('div[role="button"][data-testid="LoginForm_Login_Button"]')
-            if giris_buton:
-                giris_buton.click()
-                logger.info("Giriş Yap butonuna tıklandı (şifre sonrası)")
-            self.page.wait_for_timeout(6000)
-            # Eğer doğrulama kodu istenirse input[name="text"] tekrar çıkabilir (şifre sonrası)
-            # Twitter bazen kod ekranında "Doğrulama kodu" başlığı veya "Enter it below" gibi bir metin gösterir
-            if self.page.query_selector('input[name="text"]'):
+                except Exception as e:
+                    logger.info(f"E-posta inputu kontrolü: {str(e)}")
+
+            # Eğer challenge/2FA ise
+            if found_next == 'challenge':
                 logger.info("Doğrulama kodu ekranı algılandı, kod çekilecek...")
                 if not handle_verification_code(self.page):
                     logger.error("Doğrulama kodu girilemedi!")
                     return False
+
+            # Şifre gir (wait up to 60s)
+            try:
+                self.page.wait_for_selector('input[name="password"]', timeout=60000)
+                self.page.fill('input[name="password"]', password)
+                # Enter tuşuna bas veya Giriş Yap butonuna tıkla
+                try:
+                    self.page.keyboard.press('Enter')
+                    logger.info("Enter tuşuna basıldı (şifre sonrası)")
+                except Exception as e:
+                    logger.info(f"Enter tuşu basılamadı (şifre sonrası): {str(e)}")
+                self.page.wait_for_timeout(4000)
+                giris_buton = self.page.query_selector('div[role="button"][data-testid="LoginForm_Login_Button"]')
+                if giris_buton:
+                    giris_buton.click()
+                    logger.info("Giriş Yap butonuna tıklandı (şifre sonrası)")
+                self.page.wait_for_timeout(6000)
+            except Exception as e:
+                logger.error(f"Şifre inputu veya giriş işlemi sırasında hata: {str(e)}")
+                self.page.screenshot(path="login_password_error.png")
+                with open("login_password_error.html", "w", encoding="utf-8") as f:
+                    f.write(self.page.content())
+                return False
+
+            # Eğer doğrulama kodu istenirse input[name="text"] tekrar çıkabilir (şifre sonrası)
+            if self.page.query_selector('input[name="text"]'):
+                logger.info("Doğrulama kodu ekranı algılandı, kod çekilecek... (şifre sonrası)")
+                if not handle_verification_code(self.page):
+                    logger.error("Doğrulama kodu girilemedi! (şifre sonrası)")
+                    return False
+
             # Giriş başarılı mı kontrol et
             if self.page.url.startswith("https://x.com/home") or self.page.url.startswith("https://twitter.com/home"):
                 logger.info("Otomatik login başarılı!")
                 self.context.storage_state(path=self.session_file)
                 return True
             else:
-                logger.error("Otomatik login başarısız! Lütfen bilgileri kontrol edin.")
+                logger.error(f"Otomatik login başarısız! Son URL: {self.page.url}")
+                self.page.screenshot(path="login_final_error.png")
+                with open("login_final_error.html", "w", encoding="utf-8") as f:
+                    f.write(self.page.content())
                 return False
         except Exception as e:
             logger.error(f"Otomatik login sırasında hata: {str(e)}")
+            try:
+                self.page.screenshot(path="login_unhandled_exception.png")
+                with open("login_unhandled_exception.html", "w", encoding="utf-8") as f:
+                    f.write(self.page.content())
+            except Exception as ee:
+                logger.warning(f"[DIAG] Could not save screenshot/HTML after exception: {str(ee)}")
             return False
