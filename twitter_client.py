@@ -60,13 +60,16 @@ class TwitterClient:
             logger.info("No session file found, will create new session")
         
         # Geliştirilmiş tarayıcı başlatma
+        # Ortama göre headless ayarı: Render veya X sunucusu yoksa headless=True
+        is_render = os.environ.get("RENDER", "0") == "1" or os.environ.get("RENDER") == "true"
+        headless_mode = is_render or not os.environ.get("DISPLAY")
         self.browser = self.playwright.chromium.launch(
-            headless=False,  # Elle giriş için False, Render'da tekrar True yapılabilir
+            headless=headless_mode,
             args=browser_args,
-            channel="chrome",  # Normal Chrome kullan (varsa)
-            slow_mo=50  # Daha doğal etkileşim için yavaşlatma (milisaniye)
+            channel="chrome",
+            slow_mo=50
         )
-        logger.info("Browser launched successfully in visible mode (headless=False)")
+        logger.info(f"Browser launched successfully with headless={headless_mode}")
         
         # İyileştirilmiş tarayıcı bağlamı
         self.context = self.browser.new_context(
@@ -83,27 +86,42 @@ class TwitterClient:
         self.page = self.context.new_page()
         logger.info("Browser page created")
         
-        # Eğer session dosyası yoksa veya login değilse login sayfasına git
+        # Önce session ile giriş dene, olmazsa otomatik login dene, o da olmazsa manuel login dene
         try:
-            if storage_state is None:
+            if storage_state is not None:
+                logger.info("Navigating directly to Twitter home page with session file")
+                self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=120000)
+                logger.info("Successfully navigated to Twitter home page")
+                random_delay(8, 15)
+                self._check_login_state()
+                if self.is_logged_in:
+                    logger.info("Session ile login başarılı!")
+                    return
+                else:
+                    logger.warning("Session dosyası ile login başarısız. Otomatik login denenecek.")
+            # Session yoksa veya geçersizse otomatik login dene
+            if self._auto_login():
+                self._check_login_state()
+                if self.is_logged_in:
+                    logger.info("Otomatik login başarılı!")
+                    return
+                else:
+                    logger.warning("Otomatik login başarısız. Manuel login denenecek.")
+            # Otomatik login de başarısızsa manuel login (sadece localde, headless=False ise)
+            if not (os.environ.get("RENDER", "0") == "1" or os.environ.get("RENDER") == "true") and not os.environ.get("DISPLAY") is None:
                 logger.info("No valid session, opening login page for manual login...")
                 self.page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=120000)
                 logger.info("Lütfen tarayıcıda elle giriş yapın. Giriş yaptıktan sonra tarayıcıyı kapatabilirsiniz.")
-                # Kullanıcıya zaman tanı
                 for i in range(60):
                     logger.info(f"Elle giriş için bekleniyor... ({60-i}s kaldı)")
                     time.sleep(1)
-                # Giriş başarılıysa session kaydet
                 if self.page.url.startswith("https://x.com/home"):
                     logger.info("Elle login başarılı! Session dosyası kaydediliyor.")
                     self.context.storage_state(path=self.session_file)
                 else:
                     logger.warning("Elle login başarısız veya tamamlanmadı.")
             else:
-                logger.info("Navigating directly to Twitter home page")
-                self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=120000)
-                logger.info("Successfully navigated to Twitter home page")
-                random_delay(8, 15)
+                logger.error("Otomatik ve manuel login başarısız! Render ortamında elle login mümkün değildir. Session dosyasını localde oluşturup deploy edin.")
         except Exception as e:
             logger.error(f"Error navigating to Twitter home: {str(e)}")
             self.page.screenshot(path="navigation_error.png")
@@ -855,9 +873,24 @@ class TwitterClient:
         try:
             logger.info("Otomatik login başlatılıyor...")
             self.page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=120000)
+            # Kullanıcı adı gir
+            self.page.wait_for_selector('input[name="text"]', timeout=30000)
             self.page.fill('input[name="text"]', username)
             self.page.click('div[role="button"][data-testid="LoginForm_Login_Button"]')
             self.page.wait_for_timeout(2000)
+            # Eğer e-posta sorulursa doldur
+            try:
+                email_input = self.page.query_selector('input[name="email"]')
+                if email_input:
+                    email = os.getenv("TWITTER_EMAIL")
+                    if email:
+                        self.page.fill('input[name="email"]', email)
+                        self.page.click('div[role="button"][data-testid="LoginForm_Login_Button"]')
+                        self.page.wait_for_timeout(2000)
+            except Exception as e:
+                logger.info(f"E-posta inputu kontrolü: {str(e)}")
+            # Şifre gir
+            self.page.wait_for_selector('input[name="password"]', timeout=30000)
             self.page.fill('input[name="password"]', password)
             self.page.click('div[role="button"][data-testid="LoginForm_Login_Button"]')
             self.page.wait_for_timeout(5000)
