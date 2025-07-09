@@ -969,42 +969,17 @@ class TwitterClient:
                 error_box = self.page.query_selector('[role="alert"], [data-testid="LoginForm_Login_Button_error"]')
                 if error_box:
                     logger.error(f"[DIAG] Error or alert after username: {error_box.inner_text()}")
-                # Check for suspicious login/challenge (2FA):
-                challenge_input = self.page.query_selector('input[name="text"]')
-                if challenge_input:
-                    # Only treat as 2FA if page contains verification/2FA-related text
-                    page_content = self.page.content().lower()
-                    if (
-                        ("doğrulama kodu" in page_content) or
-                        ("verification code" in page_content) or
-                        ("güvenlik kodu" in page_content) or
-                        ("security code" in page_content) or
-                        ("enter the code" in page_content) or
-                        ("kodu gir" in page_content) or
-                        ("we sent you a code" in page_content) or
-                        ("bir kod gönderdik" in page_content) or
-                        ("2fa" in page_content) or
-                        ("two-factor" in page_content) or
-                        ("multi-factor" in page_content)
-                    ):
-                        logger.info("Verification code input detected after username entry (challenge/2FA, confirmed by page text)")
-                        found_next = 'challenge'
-                        break
-                    else:
-                        logger.info("input[name='text'] detected, but no 2FA/verification text found on page. Not treating as 2FA.")
+                # B: 2FA/verification adımını tamamen atla, challenge_input kontrolü kaldırıldı
                 _time.sleep(1)
 
+            # B: 2FA/verification adımı tamamen atlandı, sadece şifre inputu bekleniyor
             if not found_next:
-                logger.error("No password/challenge input appeared after username entry (90s timeout). See login_after_username.png/html for diagnostics.")
-                return False
+                logger.error("No password input appeared after username entry (90s timeout). See login_after_username.png/html for diagnostics.")
 
-            # E-posta adımı tamamen atlandı
+            # E-posta ve 2FA/verification adımı tamamen atlandı
+            return False
 
-            # Eğer challenge/2FA ise
-            if found_next == 'challenge':
-                logger.info("Doğrulama kodu ekranı algılandı, kod çekilecek...")
-                if not handle_verification_code(self.page):
-                    logger.error("Doğrulama kodu girilemedi!")
+            # E-posta ve 2FA/verification adımı tamamen atlandı
                     return False
 
             # Şifre gir (wait up to 60s)
