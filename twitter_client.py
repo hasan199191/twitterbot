@@ -928,23 +928,17 @@ class TwitterClient:
             return False
         try:
             logger.info("Otomatik login başlatılıyor...")
-            self.page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=120000)
-            # Kullanıcı adı gir
+            self.page.goto("https://twitter.com/login", wait_until="domcontentloaded", timeout=120000)
+            # Kullanıcı adı inputunu doldur
             self.page.wait_for_selector('input[name="text"]', timeout=60000)
             self.page.fill('input[name="text"]', username)
-            # Enter tuşuna bas veya İleri butonuna tıkla
-            import time as _time
+            # Next butonuna tıkla (rol tabanlı, daha stabil)
             try:
-                self.page.keyboard.press('Enter')
-                logger.info("Enter tuşuna basıldı (kullanıcı adı sonrası)")
+                next_button = self.page.get_by_role("button", name="Next")
+                next_button.click()
+                logger.info("Next butonuna tıklandı (kullanıcı adı sonrası)")
             except Exception as e:
-                logger.info(f"Enter tuşu basılamadı: {str(e)}")
-            self.page.wait_for_timeout(4000)
-            # Alternatif olarak İleri butonuna tıkla (varsa)
-            ileri_buton = self.page.query_selector('div[role="button"][data-testid="LoginForm_Login_Button"]')
-            if ileri_buton:
-                ileri_buton.click()
-                logger.info("İleri butonuna tıklandı (kullanıcı adı sonrası)")
+                logger.warning(f"Next butonuna tıklanamadı: {str(e)}")
             self.page.wait_for_timeout(4000)
 
             # DIAGNOSTIC: Save screenshot and HTML after username entry
@@ -958,40 +952,19 @@ class TwitterClient:
 
 
 
-            # Wait up to 90s for next step: password or challenge (2FA) ONLY, skip email step
-            found_next = False
-            for i in range(90):
-                if self.page.query_selector('input[name="password"]'):
-                    logger.info("Password input detected after username entry.")
-                    found_next = 'password'
-                    break
-                # Check for error or challenge messages
-                error_box = self.page.query_selector('[role="alert"], [data-testid="LoginForm_Login_Button_error"]')
-                if error_box:
-                    logger.error(f"[DIAG] Error or alert after username: {error_box.inner_text()}")
-                # B: 2FA/verification adımını tamamen atla, challenge_input kontrolü kaldırıldı
-                _time.sleep(1)
-
-            # B: 2FA/verification adımı tamamen atlandı, sadece şifre inputu bekleniyor
-            if not found_next:
-                logger.error("No password input appeared after username entry (90s timeout). See login_after_username.png/html for diagnostics.")
-                return False
-
-            # Şifre gir (wait up to 60s)
+            # Şifre inputunu bekle
             try:
                 self.page.wait_for_selector('input[name="password"]', timeout=60000)
+            except Exception as e:
+                logger.error("Şifre inputu gelmedi (60s timeout). See login_after_username.png/html for diagnostics.")
+                return False
+
+            # Şifreyi doldur ve Log in butonuna tıkla
+            try:
                 self.page.fill('input[name="password"]', password)
-                # Enter tuşuna bas veya Giriş Yap butonuna tıkla
-                try:
-                    self.page.keyboard.press('Enter')
-                    logger.info("Enter tuşuna basıldı (şifre sonrası)")
-                except Exception as e:
-                    logger.info(f"Enter tuşu basılamadı (şifre sonrası): {str(e)}")
-                self.page.wait_for_timeout(4000)
-                giris_buton = self.page.query_selector('div[role="button"][data-testid="LoginForm_Login_Button"]')
-                if giris_buton:
-                    giris_buton.click()
-                    logger.info("Giriş Yap butonuna tıklandı (şifre sonrası)")
+                login_button = self.page.get_by_role("button", name="Log in")
+                login_button.click()
+                logger.info("Log in butonuna tıklandı (şifre sonrası)")
                 self.page.wait_for_timeout(6000)
             except Exception as e:
                 logger.error(f"Şifre inputu veya giriş işlemi sırasında hata: {str(e)}")
@@ -999,14 +972,6 @@ class TwitterClient:
                 with open("login_password_error.html", "w", encoding="utf-8") as f:
                     f.write(self.page.content())
                 logger.error(f"Mevcut URL (şifre beklerken): {self.page.url}")
-                # DIAGNOSTIC: 2FA sonrası şifre inputu gelmediyse ayrıca kaydet
-                try:
-                    self.page.screenshot(path="login_after_2fa.png")
-                    with open("login_after_2fa.html", "w", encoding="utf-8") as f2:
-                        f2.write(self.page.content())
-                    logger.error("2FA sonrası şifre inputu gelmedi, login_after_2fa.png ve .html kaydedildi.")
-                except Exception as ee:
-                    logger.warning(f"2FA sonrası teşhis dosyaları kaydedilemedi: {str(ee)}")
                 return False
 
             # Şifre sonrası 10 saniye bekle, ardından home sayfasına gitmeyi dene
