@@ -885,8 +885,8 @@ class TwitterClient:
             from gmail_reader import GmailReader
             import time as _time
             logger.info("Doğrulama kodu isteniyor, Gmail'den kod aranıyor...")
-            # Doğrulama kodu inputunu ve kodu almak için 1 dakika boyunca dene
-            max_wait = 60
+            # Doğrulama kodu inputunu ve kodu almak için 2 dakika boyunca dene
+            max_wait = 120
             for i in range(max_wait):
                 code_input = page.query_selector('input[name="text"]')
                 if code_input:
@@ -896,8 +896,19 @@ class TwitterClient:
                         if code:
                             logger.info(f"Gmail'den doğrulama kodu bulundu: {code}")
                             page.fill('input[name="text"]', code)
-                            page.keyboard.press('Enter')
-                            logger.info("Doğrulama kodu girildi ve Enter'a basıldı.")
+                            # Kod girildikten sonra biraz bekle
+                            page.wait_for_timeout(2000)
+                            # Önce Enter, sonra İleri butonu denenir
+                            try:
+                                page.keyboard.press('Enter')
+                                logger.info("Doğrulama kodu sonrası Enter'a basıldı.")
+                            except Exception as e:
+                                logger.info(f"Doğrulama kodu sonrası Enter basılamadı: {str(e)}")
+                            page.wait_for_timeout(2000)
+                            ileri_buton = page.query_selector('div[role="button"][data-testid="LoginForm_Login_Button"]')
+                            if ileri_buton:
+                                ileri_buton.click()
+                                logger.info("Doğrulama kodu sonrası İleri/Giriş Yap butonuna tıklandı.")
                             page.wait_for_timeout(3000)
                             return True
                         else:
@@ -905,7 +916,7 @@ class TwitterClient:
                     except Exception as e:
                         logger.info(f"[{i+1}/{max_wait}] Kod alınamadı: {str(e)}")
                 _time.sleep(1)
-            logger.error("1 dakika içinde doğrulama kodu alınamadı veya input bulunamadı!")
+            logger.error("2 dakika içinde doğrulama kodu alınamadı veya input bulunamadı!")
             return False
 
         """Twitter login page üzerinden kullanıcı adı ve şifre ile otomatik giriş yap."""
@@ -919,7 +930,7 @@ class TwitterClient:
             logger.info("Otomatik login başlatılıyor...")
             self.page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=120000)
             # Kullanıcı adı gir
-            self.page.wait_for_selector('input[name="text"]', timeout=30000)
+            self.page.wait_for_selector('input[name="text"]', timeout=60000)
             self.page.fill('input[name="text"]', username)
             # Enter tuşuna bas veya İleri butonuna tıkla
             import time as _time
@@ -928,13 +939,13 @@ class TwitterClient:
                 logger.info("Enter tuşuna basıldı (kullanıcı adı sonrası)")
             except Exception as e:
                 logger.info(f"Enter tuşu basılamadı: {str(e)}")
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(4000)
             # Alternatif olarak İleri butonuna tıkla (varsa)
             ileri_buton = self.page.query_selector('div[role="button"][data-testid="LoginForm_Login_Button"]')
             if ileri_buton:
                 ileri_buton.click()
                 logger.info("İleri butonuna tıklandı (kullanıcı adı sonrası)")
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(4000)
             # Eğer e-posta sorulursa doldur
             try:
                 email_input = self.page.query_selector('input[name="email"]')
@@ -944,11 +955,11 @@ class TwitterClient:
                         self.page.fill('input[name="email"]', email)
                         self.page.keyboard.press('Enter')
                         logger.info("E-posta girildi ve Enter'a basıldı")
-                        self.page.wait_for_timeout(2000)
+                        self.page.wait_for_timeout(4000)
             except Exception as e:
                 logger.info(f"E-posta inputu kontrolü: {str(e)}")
             # Şifre gir
-            self.page.wait_for_selector('input[name="password"]', timeout=30000)
+            self.page.wait_for_selector('input[name="password"]', timeout=60000)
             self.page.fill('input[name="password"]', password)
             # Enter tuşuna bas veya Giriş Yap butonuna tıkla
             try:
@@ -956,12 +967,12 @@ class TwitterClient:
                 logger.info("Enter tuşuna basıldı (şifre sonrası)")
             except Exception as e:
                 logger.info(f"Enter tuşu basılamadı (şifre sonrası): {str(e)}")
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_timeout(4000)
             giris_buton = self.page.query_selector('div[role="button"][data-testid="LoginForm_Login_Button"]')
             if giris_buton:
                 giris_buton.click()
                 logger.info("Giriş Yap butonuna tıklandı (şifre sonrası)")
-            self.page.wait_for_timeout(5000)
+            self.page.wait_for_timeout(6000)
             # Eğer doğrulama kodu istenirse input[name="text"] tekrar çıkabilir (şifre sonrası)
             # Twitter bazen kod ekranında "Doğrulama kodu" başlığı veya "Enter it below" gibi bir metin gösterir
             if self.page.query_selector('input[name="text"]'):
