@@ -956,7 +956,8 @@ class TwitterClient:
             except Exception as e:
                 logger.warning(f"[DIAG] Could not save screenshot/HTML after username: {str(e)}")
 
-            # Wait up to 90s for next step: password, email, or challenge
+
+            # Wait up to 90s for next step: password, email, or challenge (2FA)
             found_next = False
             for i in range(90):
                 if self.page.query_selector('input[name="password"]'):
@@ -971,12 +972,29 @@ class TwitterClient:
                 error_box = self.page.query_selector('[role="alert"], [data-testid="LoginForm_Login_Button_error"]')
                 if error_box:
                     logger.error(f"[DIAG] Error or alert after username: {error_box.inner_text()}")
-                # Check for suspicious login/challenge
-                challenge = self.page.query_selector('input[name="text"]')
-                if challenge:
-                    logger.info("Verification code input detected after username entry (challenge/2FA)")
-                    found_next = 'challenge'
-                    break
+                # Check for suspicious login/challenge (2FA):
+                challenge_input = self.page.query_selector('input[name="text"]')
+                if challenge_input:
+                    # Only treat as 2FA if page contains verification/2FA-related text
+                    page_content = self.page.content().lower()
+                    if (
+                        ("doğrulama kodu" in page_content) or
+                        ("verification code" in page_content) or
+                        ("güvenlik kodu" in page_content) or
+                        ("security code" in page_content) or
+                        ("enter the code" in page_content) or
+                        ("kodu gir" in page_content) or
+                        ("we sent you a code" in page_content) or
+                        ("bir kod gönderdik" in page_content) or
+                        ("2fa" in page_content) or
+                        ("two-factor" in page_content) or
+                        ("multi-factor" in page_content)
+                    ):
+                        logger.info("Verification code input detected after username entry (challenge/2FA, confirmed by page text)")
+                        found_next = 'challenge'
+                        break
+                    else:
+                        logger.info("input[name='text'] detected, but no 2FA/verification text found on page. Not treating as 2FA.")
                 _time.sleep(1)
 
             if not found_next:
