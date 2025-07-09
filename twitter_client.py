@@ -1034,13 +1034,15 @@ class TwitterClient:
                     logger.warning(f"2FA sonrası teşhis dosyaları kaydedilemedi: {str(ee)}")
                 return False
 
-            # Eğer doğrulama kodu istenirse input[name="text"] tekrar çıkabilir (şifre sonrası)
-            if self.page.query_selector('input[name="text"]'):
-                logger.info("Doğrulama kodu ekranı algılandı, kod çekilecek... (şifre sonrası)")
-                if not handle_verification_code(self.page):
-                    logger.error("Doğrulama kodu girilemedi! (şifre sonrası)")
-                    return False
-
+            # Şifre sonrası 10 saniye bekle, ardından home sayfasına gitmeyi dene
+            import time as _time
+            _time.sleep(10)
+            try:
+                self.page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=60000)
+                logger.info("Şifre sonrası home sayfasına yönlendirildi.")
+            except Exception as e:
+                logger.error(f"Home sayfasına yönlendirme hatası: {str(e)}")
+                self.page.screenshot(path="goto_home_error.png")
             # Giriş başarılı mı kontrol et
             if self.page.url.startswith("https://x.com/home") or self.page.url.startswith("https://twitter.com/home"):
                 logger.info("Otomatik login başarılı!")
