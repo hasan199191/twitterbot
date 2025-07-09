@@ -1023,6 +1023,15 @@ class TwitterClient:
                 self.page.screenshot(path="login_password_error.png")
                 with open("login_password_error.html", "w", encoding="utf-8") as f:
                     f.write(self.page.content())
+                logger.error(f"Mevcut URL (şifre beklerken): {self.page.url}")
+                # DIAGNOSTIC: 2FA sonrası şifre inputu gelmediyse ayrıca kaydet
+                try:
+                    self.page.screenshot(path="login_after_2fa.png")
+                    with open("login_after_2fa.html", "w", encoding="utf-8") as f2:
+                        f2.write(self.page.content())
+                    logger.error("2FA sonrası şifre inputu gelmedi, login_after_2fa.png ve .html kaydedildi.")
+                except Exception as ee:
+                    logger.warning(f"2FA sonrası teşhis dosyaları kaydedilemedi: {str(ee)}")
                 return False
 
             # Eğer doğrulama kodu istenirse input[name="text"] tekrar çıkabilir (şifre sonrası)
