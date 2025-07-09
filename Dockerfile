@@ -35,4 +35,4 @@ ENV GOOGLE_CHROME_BIN=/usr/bin/google-chrome
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # Run script
-CMD ["python", "main.py"]
+CMD ["python", "web_main.py"]

@@ -10,6 +10,10 @@ app = Flask(__name__)
 def home():
     return "Bot is running!"
 
+@app.route("/healthz")
+def healthz():
+    return "ok", 200
+
 def bot_runner():
     while True:
         try:
@@ -18,7 +22,6 @@ def bot_runner():
             print(f"Bot hatası: {e}")
         time.sleep(3600)
 
-# Bot thread'i, modül import edildiğinde başlatılır (hem gunicorn hem python için çalışır)
 if not hasattr(app, 'bot_thread_started'):
     t = threading.Thread(target=bot_runner)
     t.daemon = True
